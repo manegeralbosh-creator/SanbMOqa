@@ -1,5 +1,4 @@
 name: Build APK
-
 on:
   push:
     branches: [ main ]
@@ -7,33 +6,19 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Build APK with Buildozer Action
+      uses: ArtemGovorov/buildozer-action@v1
       with:
-        python-version: "3.10"
-
-    - name: Install System Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential ccache git ffmpeg libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav libgstreamer-plugins-base1.0-dev libasound2-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev
-        sudo apt-get install -y openjdk-17-jdk unzip zip autoconf libtool pkg-config libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev sqlite3 bzip2 libbz2-dev
-        pip install --upgrade pip
-        pip install "cython<3.0.0" virtualenv buildozer
-
-    - name: Build with Buildozer
-      run: |
-        yes | buildozer android debug
-      env:
-        BUILDOZER_ALLOW_KIVY_DEVELOPER_VERSION: 1
+        buildozer_version: master
+        command: buildozer android debug
+        repository_root: .
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Bocsh-App-APK
-        path: .buildozer/android/platform/build-armeabi-v7a_arm64-v8a/dists/*/*.apk
-        if-no-files-found: warn
+        path: bin/*.apk
