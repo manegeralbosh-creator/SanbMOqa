@@ -5,7 +5,7 @@ package.domain = org.bocsh
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,ttf
 version = 0.1
-requirements = python3,kivy,requests,urllib3,charset_normalizer,idna
+requirements = python3,kivy,requests
 
 orientation = portrait
 fullscreen = 0
