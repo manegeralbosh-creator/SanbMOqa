@@ -23,7 +23,7 @@ def extract_yemeni_phone(text):
     if pd.isna(text):
         return ""
     text_str = str(text)
-    # البحث عن أي نمط لـ 9 أرقام تبدأ بـ 77 أو 73 أو 71 أو 70 (يدعم الأرقام العربية والهندية)
+    # تحويل الأرقام الهندية/العربية لإنجليزية لضمان معالجتها
     text_str = text_str.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
     match = re.search(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
     if match:
@@ -35,19 +35,17 @@ def clean_customer_name(text):
     if pd.isna(text):
         return ""
     text_str = str(text)
-    # إزالة الأرقام الملتصقة بالاسم والشرطات الخاصة بالهاتف ليبقى الاسم صافياً
     text_clean = re.sub(r'[/\\\-\d]+.*', '', text_str)
     return text_clean.strip()
 
-# تهيئة قاعدة البيانات المؤقتة في الجلسة
+# تهيئة قاعدة البيانات لتفادي أخطاء التداخل اللغوي في الأكواد
 if 'accounts_data' not in st.session_state:
-    # بيانات افتراضية أولية
     st.session_state.accounts_data = pd.DataFrame([
-        {"العميل": "مؤسسة النجاح للتجارة", "الهاتف": "967770000000", "المبلغ المتبقي": 150000.0, "العملة": "YER"},
-        {"شركة شمسان للمرطبات", "الهاتف": "967730000000", "المبلغ المتبقي": 2500.0, "العملة": "USD"}
+        {"customer": "مؤسسة النجاح للتجارة", "phone": "967770000000", "balance": 150000.0, "currency": "YER"},
+        {"customer": "شركة شمسان للمرطبات", "phone": "967730000000", "balance": 2500.0, "currency": "USD"}
     ])
 
-# القائمة الجانبية أو التبويبات للتحكم الطريقتين
+# ألسنة التحكم بالطريقتين
 tab1, tab2 = st.tabs(["📁 الطريقة الأولى: رفع ملف أونكس", "⚙️ إعدادات الربط التلقائي (المباشر)"])
 
 with tab1:
@@ -61,13 +59,10 @@ with tab1:
             else:
                 df_onyx = pd.read_excel(uploaded_file)
             
-            # محاولة التعرف على الأعمدة بناءً على الصورة المرسلة
-            # العمود 1: رقم العميل، العمود 2: اسم العميل، العمود 3: العملة، العمود 4: الرصيد
-            # سنعتمد على الترتيب لتلافي اختلاف الأسماء
             if len(df_onyx.columns) >= 4:
-                col_name = df_onyx.columns[1]   # اسم العميل
-                col_currency = df_onyx.columns[2] # العملة (Ac_Y)
-                col_balance = df_onyx.columns[3]  # الرصيد الحالي
+                col_name = df_onyx.columns[1]   
+                col_currency = df_onyx.columns[2] 
+                col_balance = df_onyx.columns[3]  
                 
                 parsed_list = []
                 for idx, row in df_onyx.iterrows():
@@ -78,7 +73,6 @@ with tab1:
                     phone = extract_yemeni_phone(raw_name)
                     clean_name = clean_customer_name(raw_name)
                     
-                    # التحقق من وجود مديونية حقيقية
                     try:
                         balance_val = float(str(raw_balance).replace(',', ''))
                     except:
@@ -86,10 +80,10 @@ with tab1:
                         
                     if balance_val > 0:
                         parsed_list.append({
-                            "العميل": clean_name if clean_name else raw_name,
-                            "الهاتف": phone if phone else "لا يوجد رقم",
-                            "المبلغ المتبقي": balance_val,
-                            "العملة": str(raw_currency).strip()
+                            "customer": clean_name if clean_name else raw_name,
+                            "phone": phone if phone else "لا يوجد رقم",
+                            "balance": balance_val,
+                            "currency": str(raw_currency).strip()
                         })
                 
                 if parsed_list:
@@ -102,23 +96,24 @@ with tab1:
         except Exception as e:
             st.error(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
 
-    # عرض جدول الحسابات الحالي المعتمد
+    # عرض جدول الحسابات باللغة العربية للمستخدم
     st.write("### 📋 كشف حسابات السوق الحالي:")
-    st.dataframe(st.session_state.accounts_data, use_container_width=True)
+    display_df = st.session_state.accounts_data.copy()
+    display_df.columns = ["العميل", "الهاتف", "المبلغ المتبقي", "العملة"]
+    st.dataframe(display_df, use_container_width=True)
 
     # قسم إرسال التذكيرات السريعة عبر الواتساب
     st.write("### 🚀 إرسال تذكير سريع بالمديونية")
     if not st.session_state.accounts_data.empty:
-        client_options = st.session_state.accounts_data["العميل"].tolist()
+        client_options = st.session_state.accounts_data["customer"].tolist()
         selected_client = st.selectbox("اختر العميل المراد مراسلته:", client_options)
         
-        # جلب بيانات العميل المختار
-        client_row = st.session_state.accounts_data[st.session_state.accounts_data["العميل"] == selected_client].iloc[0]
-        client_phone = client_row["الهاتف"]
-        client_amount = client_row["المبلغ المتبقي"]
-        client_curr = client_row["العملة"]
+        client_row = st.session_state.accounts_data[st.session_state.accounts_data["customer"] == selected_client].iloc[0]
+        client_phone = client_row["phone"]
+        client_amount = client_row["balance"]
+        client_curr = client_row["currency"]
         
-        # صياغة نص الرسالة الاحترافي باسم محلات البوش
+        # نص الرسالة الصافي الموجه لعملاء محلات البوش
         msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\n\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {client_amount:,.2f} {client_curr}.\n\nيرجى التكرم بزيارة المحل لتصفية الحساب أو التحويل، شاكرين تعاونكم وثقتكم بنا دائماً."
         encoded_msg = urllib.parse.quote(msg)
         
@@ -147,4 +142,3 @@ https://share.streamlit.io/⚙️_سيتم_تحديده_تلقائياً_عند_
     "currency": "YER"
 }}
     """, language="python")
-    st.write("💡 عند اكتمال التطوير ورغبتك في تفعيل هذا الربط التلقائي، سنقوم ببرمجة السكربت المحلي الصغير داخل سيرفر المحل ليقوم بالمهمة خلف الكواليس.")
