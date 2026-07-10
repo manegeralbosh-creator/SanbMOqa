@@ -24,6 +24,12 @@ jobs:
         pip install --upgrade pip
         pip install cython virtualenv buildozer
 
+    - name: Accept Android Licenses Automatically
+      run: |
+        mkdir -p ~/.android
+        touch ~/.android/repositories.cfg
+        yes | buildozer android licenses
+
     - name: Build with Buildozer
       run: |
         buildozer android debug
