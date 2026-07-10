@@ -1,77 +1,150 @@
 import streamlit as st
 import pandas as pd
-import requests
+import re
 import urllib.parse
 
-# إعدادات الصفحة لتناسب شاشة الجوال والكمبيوتر
-st.set_page_config(page_title="نظام البوش للحسابات", page_icon="📊", layout="centered")
+# إعدادات الصفحة
+st.set_page_config(page_title="نظام محلات البوش لخدمات الحسابات", page_icon="📊", layout="wide")
 
-# تصميم مخصص لتحسين المظهر على الجوال 
+# تصميم الواجهة والعناوين
 st.markdown("""
     <style>
-    .main { text-align: right; direction: rtl; }
-    div.stButton > button:first-child {
-        background-color: #1A5276;
-        color: white;
-        border-radius: 8px;
-        width: 100%;
-        height: 50px;
-        font-size: 18px;
-    }
-    th, td { text-align: right !important; }
+    .reportview-container { background: #faf8f5; }
+    .main-title { color: #1E3A8A; text-align: center; font-size: 32px; font-weight: bold; margin-bottom: 20px; }
+    .sub-title { color: #4B5563; text-align: center; font-size: 18px; margin-bottom: 30px; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 نظام محلات البوش لخدمات الحسابات")
-st.write("أهلاً بك. أداة إدارة مديونيات العملاء والتذكير الآلي عبر الواتساب.")
+st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">أداة إدارة مديونيات السوق والربط الذكي مع نظام أونكس ERP عبر الواتساب</div>', unsafe_allow_html=True)
 
-# التبويبات
-tab1, tab2 = st.tabs(["📱 إرسال التذكيرات", "➕ إضافة/تعديل البيانات"])
+# دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
+def extract_yemeni_phone(text):
+    if pd.isna(text):
+        return ""
+    text_str = str(text)
+    # البحث عن أي نمط لـ 9 أرقام تبدأ بـ 77 أو 73 أو 71 أو 70 (يدعم الأرقام العربية والهندية)
+    text_str = text_str.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
+    match = re.search(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
+    if match:
+        return "967" + match.group(1)
+    return ""
+
+# دالة لتنظيف اسم العميل من الأرقام والرموز الزائدة
+def clean_customer_name(text):
+    if pd.isna(text):
+        return ""
+    text_str = str(text)
+    # إزالة الأرقام الملتصقة بالاسم والشرطات الخاصة بالهاتف ليبقى الاسم صافياً
+    text_clean = re.sub(r'[/\\\-\d]+.*', '', text_str)
+    return text_clean.strip()
+
+# تهيئة قاعدة البيانات المؤقتة في الجلسة
+if 'accounts_data' not in st.session_state:
+    # بيانات افتراضية أولية
+    st.session_state.accounts_data = pd.DataFrame([
+        {"العميل": "مؤسسة النجاح للتجارة", "الهاتف": "967770000000", "المبلغ المتبقي": 150000.0, "العملة": "YER"},
+        {"شركة شمسان للمرطبات", "الهاتف": "967730000000", "المبلغ المتبقي": 2500.0, "العملة": "USD"}
+    ])
+
+# القائمة الجانبية أو التبويبات للتحكم الطريقتين
+tab1, tab2 = st.tabs(["📁 الطريقة الأولى: رفع ملف أونكس", "⚙️ إعدادات الربط التلقائي (المباشر)"])
 
 with tab1:
-    st.subheader("🔗 كشف حسابات العملاء وإرسال الإشعارات")
+    st.subheader("📥 معالجة كشف حساب أونكس ERP")
+    uploaded_file = st.file_uploader("قم برفع ملف الإكسل المستخرج من أونكس (Excel / CSV)", type=["xlsx", "xls", "csv"])
     
-    if 'data' not in st.session_state:
-        st.session_state.data = pd.DataFrame([
-            {"العميل": "مؤسسة النجاح للتجارة", "الهاتف": "967770000000", "المبلغ المتبقي": 150000, "العملة": "YER"},
-            {"العميل": "شركة شمسان للمرطبات", "الهاتف": "967730000000", "المبلغ المتبقي": 2500, "العملة": "USD"},
-        ])
-    
-    df = st.session_state.data
-    st.dataframe(df, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🚀 إرسال تذكير سريع")
-    
-    client_names = df["العميل"].tolist()
-    selected_client = st.selectbox("اختر العميل المُراد مراسلته:", client_names)
-    
-    client_row = df[df["العميل"] == selected_client].iloc[0]
-    phone = client_row["الهاتف"]
-    balance = client_row["المبلغ المتبقي"]
-    currency = client_row["العملة"]
-    
-    default_msg = f"عزيزي العميل ({selected_client})، يرجى التكرم بالعلم بأن الرصيد المستحق لحسابكم طرفنا هو {balance:,} {currency}. شاكرين حسن تعاونكم الدائم - محلات البوش لقطع غيار الشاحنات."
-    message = st.text_area("نص رسالة التذكير:", value=default_msg, height=120)
-    
-    encoded_msg = urllib.parse.quote(message)
-    whatsapp_url = f"https://api.whatsapp.com/send?phone={phone}&text={encoded_msg}"
-    
-    if st.button(f"📲 إرسال إلى {selected_client} عبر الواتساب"):
-        st.markdown(f'<a href="{whatsapp_url}" target="_blank" style="text-decoration:none;"><div style="background-color:#25D366;color:white;padding:10px;text-align:center;border-radius:8px;font-weight:bold;">انقر هنا لفتح الواتساب وإرسال الرسالة فوراً</div></a>', unsafe_allow_html=True)
-        st.success("تم تجهيز الرابط بنجاح! اضغط على الزر الأخضر بالأعلى للانتقال للواتساب.")
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                df_onyx = pd.read_csv(uploaded_file)
+            else:
+                df_onyx = pd.read_excel(uploaded_file)
+            
+            # محاولة التعرف على الأعمدة بناءً على الصورة المرسلة
+            # العمود 1: رقم العميل، العمود 2: اسم العميل، العمود 3: العملة، العمود 4: الرصيد
+            # سنعتمد على الترتيب لتلافي اختلاف الأسماء
+            if len(df_onyx.columns) >= 4:
+                col_name = df_onyx.columns[1]   # اسم العميل
+                col_currency = df_onyx.columns[2] # العملة (Ac_Y)
+                col_balance = df_onyx.columns[3]  # الرصيد الحالي
+                
+                parsed_list = []
+                for idx, row in df_onyx.iterrows():
+                    raw_name = row[col_name]
+                    raw_currency = row[col_currency]
+                    raw_balance = row[col_balance]
+                    
+                    phone = extract_yemeni_phone(raw_name)
+                    clean_name = clean_customer_name(raw_name)
+                    
+                    # التحقق من وجود مديونية حقيقية
+                    try:
+                        balance_val = float(str(raw_balance).replace(',', ''))
+                    except:
+                        balance_val = 0.0
+                        
+                    if balance_val > 0:
+                        parsed_list.append({
+                            "العميل": clean_name if clean_name else raw_name,
+                            "الهاتف": phone if phone else "لا يوجد رقم",
+                            "المبلغ المتبقي": balance_val,
+                            "العملة": str(raw_currency).strip()
+                        })
+                
+                if parsed_list:
+                    st.session_state.accounts_data = pd.DataFrame(parsed_list)
+                    st.success(f"✅ تم بنجاح معالجة الملف واستيراد {len(parsed_list)} عميل لديهم مديونيات!")
+                else:
+                    st.warning("⚠️ تم قراءة الملف ولكن لم يتم العثور على مبالغ متبقية أكبر من الصفر.")
+            else:
+                st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي. يرجى التأكد من تصدير التقرير بأعمدته الأربعة كاملة.")
+        except Exception as e:
+            st.error(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
+
+    # عرض جدول الحسابات الحالي المعتمد
+    st.write("### 📋 كشف حسابات السوق الحالي:")
+    st.dataframe(st.session_state.accounts_data, use_container_width=True)
+
+    # قسم إرسال التذكيرات السريعة عبر الواتساب
+    st.write("### 🚀 إرسال تذكير سريع بالمديونية")
+    if not st.session_state.accounts_data.empty:
+        client_options = st.session_state.accounts_data["العميل"].tolist()
+        selected_client = st.selectbox("اختر العميل المراد مراسلته:", client_options)
+        
+        # جلب بيانات العميل المختار
+        client_row = st.session_state.accounts_data[st.session_state.accounts_data["العميل"] == selected_client].iloc[0]
+        client_phone = client_row["الهاتف"]
+        client_amount = client_row["المبلغ المتبقي"]
+        client_curr = client_row["العملة"]
+        
+        # صياغة نص الرسالة الاحترافي باسم محلات البوش
+        msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\n\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {client_amount:,.2f} {client_curr}.\n\nيرجى التكرم بزيارة المحل لتصفية الحساب أو التحويل، شاكرين تعاونكم وثقتكم بنا دائماً."
+        encoded_msg = urllib.parse.quote(msg)
+        
+        if client_phone and client_phone != "لا يوجد رقم":
+            whatsapp_url = f"https://api.whatsapp.com/send?phone={client_phone}&text={encoded_msg}"
+            st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; width: 100%;">💬 إرسال التذكير عبر واتساب للعميل</button></a>', unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ هذا العميل لا يمتلك رقم هاتف مستخرج من النظام، يمكنك تعديل الملف أو مراسلته يدوياً.")
+    else:
+        st.info("💡 الجدول فارغ حالياً، قم برفع ملف أونكس بالأعلى ليتم تعبئة البيانات تلقائياً.")
 
 with tab2:
-    st.subheader("📝 إدارة قاعدة البيانات المؤقتة")
-    with st.form("add_client_form"):
-        new_name = st.text_input("اسم العميل الجديد:")
-        new_phone = st.text_input("رقم الهاتف (مع رمز الدولة، مثال: 96777...):")
-        new_balance = st.number_input("المبلغ المستحق:", min_value=0, step=500)
-        new_currency = st.selectbox("العملة:", ["YER", "USD", "SAR"])
-        
-        submit_btn = st.form_submit_button("💾 حفظ العميل في القائمة")
-        if submit_btn and new_name and new_phone:
-            new_row = {"العميل": new_name, "الهاتف": new_phone, "المبلغ المتبقي": new_balance, "العملة": new_currency}
-            st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_row])], ignore_index=True)
-            st.success(f"تمت إضافة {new_name} بنجاح إلى القائمة!")
-            st.rerun()
+    st.subheader("🔌 إعدادات الربط الآلي المباشر (API)")
+    st.info("🔗 هذا القسم مخصص لربط سيرفر أونكس في المحل مباشرة بالويب لرفع المديونيات بشكل تلقائي دوري وبدون تدخل يدوي.")
+    
+    st.write("#### 🛠️ معلومات المطور للربط المستقبلي:")
+    st.code(f"""
+# رابط الاستقبال (Webhook URL):
+https://share.streamlit.io/⚙️_سيتم_تحديده_تلقائياً_عند_تفعيل_السكربت
+
+# صيغة البيانات المطلوبة (JSON Payload):
+{{
+    "customer_name": "اسم العميل",
+    "phone_number": "96777XXXXXXX",
+    "balance": 50000,
+    "currency": "YER"
+}}
+    """, language="python")
+    st.write("💡 عند اكتمال التطوير ورغبتك في تفعيل هذا الربط التلقائي، سنقوم ببرمجة السكربت المحلي الصغير داخل سيرفر المحل ليقوم بالمهمة خلف الكواليس.")
