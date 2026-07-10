@@ -18,12 +18,19 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-17-jdk zip unzip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev sqlite3 bzip2 libbz2-dev libffi-dev
+        sudo apt-get install -y openjdk-17-jdk zip unzip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev sqlite3 bzip2 libbz2-dev
         pip install --upgrade pip
         pip install "cython<3.0.0" virtualenv buildozer
 
-    - name: Run Buildozer
+    - name: Auto Fix Buildozer Spec & Run
       run: |
+        # استبدال وإجبار قيم الـ SDK والـ NDK على الإصدارات المستقرة مباشرة داخل الملف
+        sed -i 's/^#\s*android.sdk\s*=\s.*/android.sdk = 33/' buildozer.spec
+        sed -i 's/^android.sdk\s*=\s.*/android.sdk = 33/' buildozer.spec
+        sed -i 's/^#\s*android.ndk\s*=\s.*/android.ndk = 25b/' buildozer.spec
+        sed -i 's/^android.ndk\s*=\s.*/android.ndk = 25b/' buildozer.spec
+        
+        # تشغيل البناء الفعلي بعد التعديل التلقائي
         yes | buildozer android debug
       env:
         BUILDOZER_ALLOW_KIVY_DEVELOPER_VERSION: 1
