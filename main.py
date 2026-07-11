@@ -3,7 +3,7 @@ import pandas as pd
 import re
 import urllib.parse
 
-# إعدادات الصفحة
+# إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام محلات البوش لخدمات الحسابات", page_icon="📊", layout="wide")
 
 # تصميم الواجهة والعناوين
@@ -60,7 +60,7 @@ with tab1:
     
     if uploaded_file is not None:
         try:
-            # قراءة مرنة للملف تتفادى نقص مكتبة xlrd لملفات xls
+            # قراءة مرنة ومضمونة تتفادى نقص مكاتب xls القديمة عبر السيرفر
             if uploaded_file.name.endswith('.csv'):
                 df_onyx = pd.read_csv(uploaded_file)
             else:
@@ -100,19 +100,19 @@ with tab1:
                 
                 if parsed_list:
                     st.session_state.raw_accounts = parsed_list
-                    st.session_state.excluded_set = set() # تصفير الاستثناءات للملف الجديد
+                    st.session_state.excluded_set = set() # تصفير الاستثناءات مع كل ملف جديد لضمان السلامة
                     st.success(f"✅ تم بنجاح استيراد {len(parsed_list)} عميل من ملف أونكس!")
                 else:
                     st.warning("⚠️ لم يتم العثور على مبالغ متبقية أكبر من الصفر.")
             else:
                 st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي.")
         except Exception as e:
-            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى حفظ الملف كـ Excel Workbook (.xlsx) وإعادة رفعه. تفاصيل: {str(e)}")
+            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى حفظ كشف الحساب من الكمبيوتر بصيغة Excel Workbook (.xlsx) ثم أعد محاولة الرفع. تفاصيل: {str(e)}")
 
     st.write("### 📋 كشف حسابات السوق النشطة:")
     
     if st.session_state.raw_accounts:
-        # تصنيف البيانات بصورة آمنة تماماً خارج حلقة العرض
+        # دوال تصفية آمنة وثابتة بدون التسبب في انهيار الحلقات
         active_items = [item for item in st.session_state.raw_accounts if item["id"] not in st.session_state.excluded_set]
         banned_items = [item for item in st.session_state.raw_accounts if item["id"] in st.session_state.excluded_set]
         
@@ -145,18 +145,19 @@ with tab1:
                     st.session_state.freq_dict[item["id"]] = chosen_freq
                 
                 with c6:
+                    # تعديل الحالة بأمان كلي بدون استدعاء دالة st.rerun المسببة للانهيار
                     if st.button("🚫 استثناء العميل", key=f"btn_ban_{item['id']}", use_container_width=True):
                         st.session_state.excluded_set.add(item["id"])
-                        st.toast(f"📌 تم استثناء العميل [{item['customer']}] بنجاح!")
+                        st.toast(f"📌 تم استثناء العميل [{item['customer']}] بنجاح واختفاؤه!")
                         st.rerun()
         else:
-            st.warning("💡 القائمة الرئيسية فارغة، جميع العملاء في قائمة الاستثناء.")
+            st.warning("💡 القائمة الرئيسية فارغة، جميع العملاء الحاليين في قائمة الاستثناء.")
 
-        # --- شاشة التفعيل الفردية للعملاء المستثنيين ---
+        # --- شاشة تفقد وإعادة التفعيل المنسدلة والمطلوبة ---
         if banned_items:
             st.markdown("---")
             with st.expander("👁️ تفقد وإعادة تفعيل العملاء المستثنيين من الإرسال"):
-                st.write("القائمة التالية تحتوي على العملاء المستثنيين حالياً:")
+                st.write("القائمة التالية تحتوي على الأسماء المستثناة حالياً من قائمة المراسلة:")
                 
                 col_b1, col_b2, col_b3, col_b4 = st.columns([4, 2, 2, 2])
                 with col_b1: st.markdown("**اسم العميل المستثنى**")
@@ -172,10 +173,10 @@ with tab1:
                     with b4:
                         if st.button("✅ تفعيل العميل", key=f"btn_act_{item['id']}", use_container_width=True):
                             st.session_state.excluded_set.remove(item["id"])
-                            st.toast(f"🔄 تم إعادة تفعيل العميل [{item['customer']}]")
+                            st.toast(f"🔄 تم إعادة تفعيل العميل [{item['customer']}] وإعادته للقائمة!")
                             st.rerun()
 
-        # --- قسم إرسال التذكيرات والمتابعة الجاهزة (للنشطين فقط) ---
+        # --- قسم إرسال التذكيرات والمتابعة الجاهزة (للعملاء النشطين فقط) ---
         st.markdown("---")
         st.write("### 🚀 إرسال التذكيرات والمتابعة الجاهزة")
         
