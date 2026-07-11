@@ -17,7 +17,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">إدارة مديونيات السوق وتحديد فئات التكرار الذكي لعملاء أونكس ERP</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">إدارة مديونيات السوق وإرسال التذكيرات المجانية عبر الواتساب والرسائل النصية SMS</div>', unsafe_allow_html=True)
 
 # دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
 def extract_yemeni_phone(text):
@@ -27,7 +27,7 @@ def extract_yemeni_phone(text):
     text_str = text_str.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
     match = re.search(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
     if match:
-        return "967" + match.group(1)
+        return match.group(1)
     return ""
 
 # دالة لتنظيف اسم العميل من الأرقام والرموز الزائدة
@@ -38,15 +38,27 @@ def clean_customer_name(text):
     text_clean = re.sub(r'[/\\\-\d]+.*', '', text_str)
     return text_clean.strip()
 
-# تهيئة قاعدة البيانات وقائمة الفئات المخصصة في الجلسة
-if 'accounts_data' not in st.session_state:
-    st.session_state.accounts_data = pd.DataFrame([
-        {"customer": "مؤسسة النجاح للتجارة", "phone": "967770000000", "balance": 150000.0, "currency": "YER", "frequency": "أسبوعي"},
-        {"customer": "شركة شمسان للمرطبات", "phone": "967730000000", "balance": 2500.0, "currency": "USD", "frequency": "كل 3 أيام"}
-    ])
-
 # خيارات فئات التكرار المتاحة
 frequency_options = ["كل 3 أيام", "أسبوعي", "كل أسبوعين", "شهري", "إيقاف التذكير"]
+
+# تهيئة قاعدة البيانات الاسترشادية بشكل صحيح لتجنب الـ SyntaxError
+if 'accounts_data' not in st.session_state:
+    st.session_state.accounts_data = pd.DataFrame([
+        {
+            "customer": "مؤسسة النجاح للتجارة", 
+            "phone": "770000000", 
+            "balance": 150000.0, 
+            "currency": "YER", 
+            "frequency": "أسبوعي"
+        },
+        {
+            "customer": "شركة شمسان للمرطبات", 
+            "phone": "730000000", 
+            "balance": 2500.0, 
+            "currency": "USD", 
+            "frequency": "كل 3 أيام"
+        }
+    ])
 
 tab1, tab2 = st.tabs(["📁 الطريقة الأولى: رفع ملف أونكس وتحديد الفئات", "⚙️ إعدادات الربط التلقائي (المباشر)"])
 
@@ -56,10 +68,13 @@ with tab1:
     
     if uploaded_file is not None:
         try:
+            # استخدام محرك القراءة المناسب للملفات القديمة والحديثة والـ CSV
             if uploaded_file.name.endswith('.csv'):
                 df_onyx = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.xls'):
+                df_onyx = pd.read_excel(uploaded_file, engine='xlrd')
             else:
-                df_onyx = pd.read_excel(uploaded_file)
+                df_onyx = pd.read_excel(uploaded_file, engine='openpyxl')
             
             if len(df_onyx.columns) >= 4:
                 col_name = df_onyx.columns[1]   
@@ -86,7 +101,7 @@ with tab1:
                             "phone": phone if phone else "لا يوجد رقم",
                             "balance": balance_val,
                             "currency": str(raw_currency).strip(),
-                            "frequency": "أسبوعي" # الافتراضي للعملاء الجدد
+                            "frequency": "أسبوعي"
                         })
                 
                 if parsed_list:
@@ -95,18 +110,16 @@ with tab1:
                 else:
                     st.warning("⚠️ لم يتم العثور على مبالغ متبقية أكبر من الصفر في الملف.")
             else:
-                st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي. يرجى التأكد من تصدير التقرير بأعمدته الأربعة.")
+                st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي.")
         except Exception as e:
             st.error(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
 
-    # عرض الحسابات مع إمكانية التعديل التفاعلي للفئات (الحل الثالث)
+    # عرض الحسابات مع إمكانية التعديل التفاعلي للفئات
     st.write("### 📋 كشف حسابات السوق وتخصيص فئات التذكير:")
     
     if not st.session_state.accounts_data.empty:
-        # إنشاء نموذج تفاعلي لتعديل الفئات مباشرة من الجدول
         updated_rows = []
         
-        # إنشاء ترويسة مخصصة للجدول التفاعلي لتبدو منسقة
         col_c1, col_c2, col_c3, col_c4, col_c5 = st.columns([3, 2, 2, 1, 2])
         with col_c1: st.markdown("**العميل**")
         with col_c2: st.markdown("**الهاتف**")
@@ -115,7 +128,6 @@ with tab1:
         with col_c5: st.markdown("**فئة تكرار التذكير ⚙️**")
         st.markdown("---")
         
-        # عرض كل عميل في سطر وبجانبه صندوق خيارات الفئة الخاص به
         for idx, row in st.session_state.accounts_data.iterrows():
             c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 1, 2])
             with c1: st.write(row["customer"])
@@ -123,12 +135,10 @@ with tab1:
             with c3: st.write(f"{row['balance']:,.2f}")
             with c4: st.write(row["currency"])
             with c5:
-                # جلب الفئة الحالية المخزنة للعميل، وإذا لم تكن موجودة نضع "أسبوعي" كافتراضي
                 current_freq = row["frequency"] if "frequency" in row else "أسبوعي"
                 if current_freq not in frequency_options:
                     current_freq = "أسبوعي"
                 
-                # صندوق الخيارات المنسدلة لكل عميل لتحديد فئته بدقة
                 chosen_freq = st.selectbox(
                     f"فئة {row['customer']}", 
                     frequency_options, 
@@ -137,7 +147,6 @@ with tab1:
                     label_visibility="collapsed"
                 )
             
-            # حفظ التحديثات في قائمة مؤقتة
             updated_rows.append({
                 "customer": row["customer"],
                 "phone": row["phone"],
@@ -146,7 +155,6 @@ with tab1:
                 "frequency": chosen_freq
             })
         
-        # تحديث قاعدة البيانات في الجلسة بناءً على خيارات المستخدم الحالية
         st.session_state.accounts_data = pd.DataFrame(updated_rows)
         
         st.markdown("---")
@@ -161,33 +169,26 @@ with tab1:
         client_curr = client_row["currency"]
         client_freq = client_row["frequency"]
         
-        # صياغة الرسالة الذكية وتضمين فئة المتابعة لتنبيه العميل بلطف
-        msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\n\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {client_amount:,.2f} {client_curr}.\n\nعلماً بأن هذا الإشعار يصلكم بشكل تلقائي وبحسب فئة المتابعة المعتمدة حسابياً لجدولكم الجاري ({client_freq}).\n\nيرجى التكرم بتصفية الحساب، شاكرين ثقتكم الدائمة بنا."
+        # صياغة الرسالة الرسمية
+        msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {client_amount:,.2f} {client_curr}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
         encoded_msg = urllib.parse.quote(msg)
         
         if client_phone and client_phone != "لا يوجد رقم":
-            whatsapp_url = f"https://api.whatsapp.com/send?phone={client_phone}&text={encoded_msg}"
-            st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; width: 100%;">💬 إرسال التذكير الحالي عبر واتساب</button></a>', unsafe_allow_html=True)
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                whatsapp_phone = "967" + client_phone if not client_phone.startswith("967") else client_phone
+                whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
+                st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; width: 100%;">💬 إرسال عبر واتساب</button></a>', unsafe_allow_html=True)
+            
+            with col_btn2:
+                sms_url = f"sms:{client_phone}?body={encoded_msg}"
+                st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; cursor: pointer; font-weight: bold; width: 100%;">📱 إرسال SMS مجاني من الشريحة</button></a>', unsafe_allow_html=True)
         else:
-            st.warning("⚠️ هذا العميل لا يمتلك رقم هاتف مستخرج من النظام، يمكنك تعديل الملف أو مراسلته يدوياً.")
+            st.warning("⚠️ هذا العميل لا يمتلك رقم هاتف مستخرج من النظام.")
     else:
-        st.info("💡 الجدول فارغ حالياً، قم برفع ملف أونكس بالأعلى ليتم تعبئة البيانات وتحديد الفئات.")
+        st.info("💡 الجدول فارغ حالياً، قم برفع ملف أونكس بالأعلى.")
 
 with tab2:
     st.subheader("🔌 إعدادات الربط الآلي المباشر (API)")
-    st.info("🔗 هذا القسم مخصص لربط سيرفر أونكس في المحل مباشرة بالويب لرفع المديونيات بشكل تلقائي دوري وبدون تدخل يدوي.")
-    
-    st.write("#### 🛠️ معلومات المطور للربط المستقبلي:")
-    st.code(f"""
-# رابط الاستقبال (Webhook URL):
-https://share.streamlit.io/⚙️_سيتم_تحديده_تلقائياً_عند_تفعيل_السكربت
-
-# صيغة البيانات المطلوبة (JSON Payload):
-{{
-    "customer_name": "اسم العميل",
-    "phone_number": "96777XXXXXXX",
-    "balance": 50000,
-    "currency": "YER",
-    "frequency": "أسبوعي"
-}}
-    """, language="python")
+    st.info("🔗 هذا القسم مخصص لربط سيرفر أونكس في المحل مباشرة بالويب لرفع المديونيات تلقائياً.")
