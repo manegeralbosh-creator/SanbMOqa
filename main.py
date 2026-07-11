@@ -6,7 +6,7 @@ import urllib.parse
 # إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام محلات البوش لخدمات الحسابات", page_icon="📊", layout="wide")
 
-# تصميم الواجهة والعناوين مع دعم جافاسكريبت لفتح جهات الاتصال
+# تصميم الواجهة والعناوين مع دعم جافاسكريبت لنسخ الاسم فورياً للحافظة
 st.markdown("""
     <style>
     .reportview-container { background: #faf8f5; }
@@ -15,37 +15,24 @@ st.markdown("""
     .stSelectbox, .stTextInput { margin-bottom: -15px; }
     div[data-testid="stBlock"] { padding: 5px; }
     .client-card { background-color: #ffffff; padding: 12px; border-radius: 8px; border-right: 5px solid #1E3A8A; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .contact-btn { background-color: #F59E0B; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%; display: block; text-align: center; text-decoration: none; line-height: 20px; }
+    .copy-btn { background-color: #F59E0B; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%; display: block; text-align: center; text-decoration: none; line-height: 20px; }
     </style>
     
     <script>
-    async function selectContact(elementId) {
-        const props = ['tel'];
-        const opts = {multiple: false};
-        try {
-            const contacts = await navigator.contacts.select(props, opts);
-            if (contacts.length && contacts[0].tel.length) {
-                let cleanPhone = contacts[0].tel[0].replace(/[^0-9]/g, '');
-                if (cleanPhone.startsWith('967')) { cleanPhone = cleanPhone.substring(3); }
-                const inputEl = parent.document.getElementById(elementId);
-                if (inputEl) {
-                    inputEl.value = cleanPhone;
-                    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                } else {
-                    alert("تم اختيار الرقم: " + cleanPhone + " - يرجى كتابته أو لصقه في الخانة يدوياً");
-                }
-            }
-        } catch (err) {
-            alert("يرجى نسخ الرقم من جهات الاتصال ولصقه مباشرة في الخانة.");
-        }
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(function() {
+            alert("📋 تم نسخ اسم العميل: (" + text + ")\\n\\nيمكنك الآن الانتقال لجهات اتصال جوالك ولصق الاسم في البحث بجوالك.");
+        }, function(err) {
+            alert("فشل النسخ التلقائي، يرجى تحديد الاسم ونسخه يدوياً.");
+        });
     }
     </script>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">إدارة مديونيات السوق، اختيار الأرقام من الهاتف، وإرسال التذكيرات فورياً</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">إدارة مديونيات السوق، مراجعة وتعديل الأرقام الناقصة، وإرسال التذكيرات فورياً</div>', unsafe_allow_html=True)
 
-# دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
+# دالة ذكية لاستخراج رقم الهاتف من اسم العميل وتجنب الأصفار الزائدة بالبداية
 def extract_yemeni_phone(text):
     if pd.isna(text):
         return ""
@@ -108,9 +95,10 @@ with tab1:
                     clean_name = clean_customer_name(raw_name)
                     
                     try:
-                        balance_val = float(str(raw_balance).replace(',', ''))
+                        # تحويل المبلغ إلى عدد صحيح للتخلص من البوينت والأصفار تماماً
+                        balance_val = int(float(str(raw_balance).replace(',', '')))
                     except:
-                        balance_val = 0.0
+                        balance_val = 0
                         
                     if balance_val > 0:
                         cust_id = f"customer_row_{idx}"
@@ -130,28 +118,33 @@ with tab1:
             else:
                 st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي.")
         except Exception as e:
-            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى التأكد من الصيغة.")
+            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى التأكد من حفظ الملف بصيغة صالحة.")
 
     st.write("### 📋 كشف مديونيات السوق وإرسال التذكيرات الفوري:")
     
     if st.session_state.raw_accounts:
-        st.info("💡 يمكنك الضغط على زر '📂 جهات الاتصال' لفتح دفتر عناوين الجوال واختيار الرقم المفقود فوراً!")
+        st.info("💡 للعميل الذي ليس لديه رقم، يمكنك الضغط على '📋 نسخ الاسم' للبحث عنه في جهات اتصالك ثم كتابة الرقم في خانة الجوال.")
         
         for item in st.session_state.raw_accounts:
             current_phone = st.session_state.custom_phones.get(item["id"], item["phone"])
             
-            msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {item['balance']:,.2f} {item['currency']}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
+            # تنظيف الرقم المدخل يدوياً من أي أصفار بادئة زائدة عند إرسال الرابط
+            phone_to_send = str(current_phone).strip()
+            if phone_to_send.startswith('0') and len(phone_to_send) > 1:
+                phone_to_send = phone_to_send.lstrip('0')
+            
+            # صياغة نص الرسالة الجاهزة بالمبلغ الصحيح بدون بوينت
+            msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {item['balance']:,} {item['currency']}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
             encoded_msg = urllib.parse.quote(msg)
             
             st.markdown(f"""
             <div class="client-card">
                 <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {item['customer']}</span> | 
                 <span style="color:#4B5563;">📱 الهاتف الحالي: {current_phone}</span> | 
-                <span style="font-size:16px; font-weight:bold; color:#B91C1C;">💰 المتبقي: {item['balance']:,.2f} {item['currency']}</span>
+                <span style="font-size:16px; font-weight:bold; color:#B91C1C;">💰 المتبقي: {item['balance']:,} {item['currency']}</span>
             </div>
             """, unsafe_allow_html=True)
             
-            # تقسيم السطر بدقة وإصلاح أسماء المتغيرات كاملة منعا لأي خطأ إملائي
             col_one, col_two, col_three, col_four, col_five = st.columns([1.2, 1.2, 1.2, 1.2, 1.2])
             
             with col_one:
@@ -166,7 +159,7 @@ with tab1:
                 st.session_state.freq_dict[item["id"]] = chosen_freq
                 
             with col_two:
-                input_placeholder = "رقم الجوال"
+                input_placeholder = "رقم الجوال الجديد"
                 new_phone_input = st.text_input(
                     f"phone_input_{item['id']}", 
                     value="" if current_phone == "لا يوجد رقم" else current_phone,
@@ -177,22 +170,24 @@ with tab1:
                 if new_phone_input.strip() != "" and new_phone_input.strip() != "لا يوجد رقم":
                     st.session_state.custom_phones[item["id"]] = new_phone_input.strip()
                     current_phone = new_phone_input.strip()
+                    # إعادة تنظيف المتغير في حال تم التعديل الفوري
+                    phone_to_send = current_phone.lstrip('0')
             
             with col_three:
-                input_html_id = f"input_{item['id']}"
-                st.markdown(f'<button class="contact-btn" onclick="parent.selectContact(\'{input_html_id}\')">📂 جهات الاتصال</button>', unsafe_allow_html=True)
+                customer_escaped = item['customer'].replace("'", "\\'")
+                st.markdown(f'<button class="copy-btn" onclick="copyToClipboard(\'{customer_escaped}\')">📋 نسخ الاسم</button>', unsafe_allow_html=True)
                 
             with col_four:
-                if current_phone and current_phone != "لا يوجد رقم":
-                    whatsapp_phone = "967" + current_phone if not current_phone.startswith("967") else current_phone
+                if phone_to_send and phone_to_send != "لا يوجد رقم":
+                    whatsapp_phone = "967" + phone_to_send if not phone_to_send.startswith("967") else phone_to_send
                     whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
                     st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">💬 واتساب</button></a>', unsafe_allow_html=True)
                 else:
                     st.button("🚫 ضع رقم", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
                     
             with col_five:
-                if current_phone and current_phone != "لا يوجد رقم":
-                    sms_url = f"sms:{current_phone}?body={encoded_msg}"
+                if phone_to_send and phone_to_send != "لا يوجد رقم":
+                    sms_url = f"sms:{phone_to_send}?body={encoded_msg}"
                     st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">📱 SMS</button></a>', unsafe_allow_html=True)
                 else:
                     st.button("🚫 ناقص", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
