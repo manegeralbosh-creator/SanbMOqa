@@ -15,7 +15,7 @@ st.markdown("""
     .stSelectbox, .stTextInput { margin-bottom: -15px; }
     div[data-testid="stBlock"] { padding: 5px; }
     .client-card { background-color: #ffffff; padding: 12px; border-radius: 8px; border-right: 5px solid #1E3A8A; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .contact-btn { background-color: #F59E0B; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%; display: block; text-align: center; text-decoration: none; }
+    .contact-btn { background-color: #F59E0B; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%; display: block; text-align: center; text-decoration: none; line-height: 20px; }
     </style>
     
     <script>
@@ -32,11 +32,11 @@ st.markdown("""
                     inputEl.value = cleanPhone;
                     inputEl.dispatchEvent(new Event('input', { bubbles: true }));
                 } else {
-                    alert("تم نسخ الرقم: " + cleanPhone + " - يرجى لصقه في الخانة يدوياً");
+                    alert("تم اختيار الرقم: " + cleanPhone + " - يرجى كتابته أو لصقه في الخانة يدوياً");
                 }
             }
         } catch (err) {
-            alert("يرجى اختيار الاسم ثم نسخ الرقم ولصقه في الخانة مباشرة.");
+            alert("يرجى نسخ الرقم من جهات الاتصال ولصقه مباشرة في الخانة.");
         }
     }
     </script>
@@ -113,7 +113,7 @@ with tab1:
                         balance_val = 0.0
                         
                     if balance_val > 0:
-                        cust_id = f"c_{idx}"
+                        cust_id = f"customer_row_{idx}"
                         parsed_list.append({
                             "id": cust_id,
                             "customer": clean_name if clean_name else raw_name,
@@ -130,7 +130,7 @@ with tab1:
             else:
                 st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي.")
         except Exception as e:
-            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى حفظ كشف الحساب من الكمبيوتر بصيغة Excel Workbook (.xlsx) ثم أعد محاولة الرفع.")
+            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى التأكد من الصيغة.")
 
     st.write("### 📋 كشف مديونيات السوق وإرسال التذكيرات الفوري:")
     
@@ -151,5 +151,56 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
             
-            # تقسيم السطر إلى 5 خانات متناسقة (أزرار التحكم والتنقل)
-            col1,
+            # تقسيم السطر بدقة وإصلاح أسماء المتغيرات كاملة منعا لأي خطأ إملائي
+            col_one, col_two, col_three, col_four, col_five = st.columns([1.2, 1.2, 1.2, 1.2, 1.2])
+            
+            with col_one:
+                current_freq = st.session_state.freq_dict.get(item["id"], "أسبوعي")
+                chosen_freq = st.selectbox(
+                    f"freq_select_{item['id']}", 
+                    frequency_options, 
+                    index=frequency_options.index(current_freq) if current_freq in frequency_options else 1,
+                    key=f"time_{item['id']}",
+                    label_visibility="collapsed"
+                )
+                st.session_state.freq_dict[item["id"]] = chosen_freq
+                
+            with col_two:
+                input_placeholder = "رقم الجوال"
+                new_phone_input = st.text_input(
+                    f"phone_input_{item['id']}", 
+                    value="" if current_phone == "لا يوجد رقم" else current_phone,
+                    placeholder=input_placeholder,
+                    key=f"input_{item['id']}",
+                    label_visibility="collapsed"
+                )
+                if new_phone_input.strip() != "" and new_phone_input.strip() != "لا يوجد رقم":
+                    st.session_state.custom_phones[item["id"]] = new_phone_input.strip()
+                    current_phone = new_phone_input.strip()
+            
+            with col_three:
+                input_html_id = f"input_{item['id']}"
+                st.markdown(f'<button class="contact-btn" onclick="parent.selectContact(\'{input_html_id}\')">📂 جهات الاتصال</button>', unsafe_allow_html=True)
+                
+            with col_four:
+                if current_phone and current_phone != "لا يوجد رقم":
+                    whatsapp_phone = "967" + current_phone if not current_phone.startswith("967") else current_phone
+                    whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
+                    st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">💬 واتساب</button></a>', unsafe_allow_html=True)
+                else:
+                    st.button("🚫 ضع رقم", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
+                    
+            with col_five:
+                if current_phone and current_phone != "لا يوجد رقم":
+                    sms_url = f"sms:{current_phone}?body={encoded_msg}"
+                    st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">📱 SMS</button></a>', unsafe_allow_html=True)
+                else:
+                    st.button("🚫 ناقص", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
+            
+            st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
+    else:
+        st.info("💡 الجدول فارغ حالياً، قم برفع ملف أونكس بالأعلى لعرض بيانات العملاء.")
+
+with tab2:
+    st.subheader("🔌 إعدادات الربط الآلي المباشر (API)")
+    st.info("🔗 هذا القسم مخصص لربط سيرفر أونكس في المحل مباشرة بالويب لرفع المديونيات تلقائياً.")
