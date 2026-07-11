@@ -6,7 +6,7 @@ import urllib.parse
 # إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام محلات البوش لخدمات الحسابات", page_icon="📊", layout="wide")
 
-# تصميم الواجهة والعناوين
+# تصميم الواجهة والعناوين مع دعم جافاسكريبت لفتح جهات الاتصال
 st.markdown("""
     <style>
     .reportview-container { background: #faf8f5; }
@@ -15,11 +15,35 @@ st.markdown("""
     .stSelectbox, .stTextInput { margin-bottom: -15px; }
     div[data-testid="stBlock"] { padding: 5px; }
     .client-card { background-color: #ffffff; padding: 12px; border-radius: 8px; border-right: 5px solid #1E3A8A; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .contact-btn { background-color: #F59E0B; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%; display: block; text-align: center; text-decoration: none; }
     </style>
+    
+    <script>
+    async function selectContact(elementId) {
+        const props = ['tel'];
+        const opts = {multiple: false};
+        try {
+            const contacts = await navigator.contacts.select(props, opts);
+            if (contacts.length && contacts[0].tel.length) {
+                let cleanPhone = contacts[0].tel[0].replace(/[^0-9]/g, '');
+                if (cleanPhone.startsWith('967')) { cleanPhone = cleanPhone.substring(3); }
+                const inputEl = parent.document.getElementById(elementId);
+                if (inputEl) {
+                    inputEl.value = cleanPhone;
+                    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                    alert("تم نسخ الرقم: " + cleanPhone + " - يرجى لصقه في الخانة يدوياً");
+                }
+            }
+        } catch (err) {
+            alert("يرجى اختيار الاسم ثم نسخ الرقم ولصقه في الخانة مباشرة.");
+        }
+    }
+    </script>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">إدارة مديونيات السوق، تعديل الأرقام الناقصة، وإرسال التذكيرات فورياً بأعلى استقرار</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">إدارة مديونيات السوق، اختيار الأرقام من الهاتف، وإرسال التذكيرات فورياً</div>', unsafe_allow_html=True)
 
 # دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
 def extract_yemeni_phone(text):
@@ -50,7 +74,6 @@ if 'raw_accounts' not in st.session_state:
 if 'freq_dict' not in st.session_state:
     st.session_state.freq_dict = {}
 
-# قاموس لتخزين الأرقام المعدلة يدوياً للعملاء
 if 'custom_phones' not in st.session_state:
     st.session_state.custom_phones = {}
 
@@ -90,7 +113,7 @@ with tab1:
                         balance_val = 0.0
                         
                     if balance_val > 0:
-                        cust_id = f"{clean_name if clean_name else raw_name}_{idx}"
+                        cust_id = f"c_{idx}"
                         parsed_list.append({
                             "id": cust_id,
                             "customer": clean_name if clean_name else raw_name,
@@ -107,22 +130,19 @@ with tab1:
             else:
                 st.error("❌ بنية الملف غير مطابقة لتقرير أونكس القياسي.")
         except Exception as e:
-            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى حفظ كشف الحساب من الكمبيوتر بصيغة Excel Workbook (.xlsx) ثم أعد محاولة الرفع. تفاصيل: {str(e)}")
+            st.error(f"❌ حدث خطأ أثناء معالجة الملف، يرجى حفظ كشف الحساب من الكمبيوتر بصيغة Excel Workbook (.xlsx) ثم أعد محاولة الرفع.")
 
     st.write("### 📋 كشف مديونيات السوق وإرسال التذكيرات الفوري:")
     
     if st.session_state.raw_accounts:
-        st.info("💡 للعميل الذي ليس لديه رقم، يمكنك كتابة الرقم الجديد في الخانة المخصصة تحت اسمه لتفعيل الإرسال له فوراً.")
+        st.info("💡 يمكنك الضغط على زر '📂 جهات الاتصال' لفتح دفتر عناوين الجوال واختيار الرقم المفقود فوراً!")
         
         for item in st.session_state.raw_accounts:
-            # التحقق هل قام المستخدم بتعديل الرقم يدوياً لهذا العميل سابقاً؟
             current_phone = st.session_state.custom_phones.get(item["id"], item["phone"])
             
-            # صياغة نص الرسالة الجاهزة لكل عميل تلقائياً
             msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {item['balance']:,.2f} {item['currency']}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
             encoded_msg = urllib.parse.quote(msg)
             
-            # إنشاء بطاقة عرض نظيفة ومستقرة لكل عميل
             st.markdown(f"""
             <div class="client-card">
                 <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {item['customer']}</span> | 
@@ -131,57 +151,5 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
             
-            # صف الأزرار والتعديل والتوقيت الخاص بكل عميل بالأسفل مباشرة
-            col1, col2, col3, col4 = st.columns([1.5, 1.5, 1.5, 1.5])
-            
-            with col1:
-                # خيار التوقيت لكل عميل
-                current_freq = st.session_state.freq_dict.get(item["id"], "أسبوعي")
-                chosen_freq = st.selectbox(
-                    f"توقيت التذكير لـ {item['customer']}", 
-                    frequency_options, 
-                    index=frequency_options.index(current_freq) if current_freq in frequency_options else 1,
-                    key=f"time_{item['id']}",
-                    label_visibility="collapsed"
-                )
-                st.session_state.freq_dict[item["id"]] = chosen_freq
-                
-            with col2:
-                # خانة إدخال رقم الجوال البديل إذا كان الرقم مفقوداً أو تود استبداله
-                input_placeholder = "أدخل رقم الجوال الجديد هنا" if item["phone"] == "لا يوجد رقم" else "استبدال الرقم الحالي"
-                new_phone_input = st.text_input(
-                    f"تعديل رقم {item['customer']}", 
-                    value="" if current_phone == "لا يوجد رقم" else current_phone,
-                    placeholder=input_placeholder,
-                    key=f"input_{item['id']}",
-                    label_visibility="collapsed"
-                )
-                # إذا قام بوضع رقم جديد نقوم بحفظه في القاموس فوراً
-                if new_phone_input.strip() != "" and new_phone_input.strip() != "لا يوجد رقم":
-                    st.session_state.custom_phones[item["id"]] = new_phone_input.strip()
-                    current_phone = new_phone_input.strip()
-                
-            with col3:
-                # زر الواتساب (يعمل فقط إذا كان هناك رقم مستخرج أو مدخل يدوياً)
-                if current_phone and current_phone != "لا يوجد رقم":
-                    whatsapp_phone = "967" + current_phone if not current_phone.startswith("967") else current_phone
-                    whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
-                    st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">💬 واتساب</button></a>', unsafe_allow_html=True)
-                else:
-                    st.button("❌ ضع رقم أولاً", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
-                    
-            with col4:
-                # زر الرسالة العادية SMS
-                if current_phone and current_phone != "لا يوجد رقم":
-                    sms_url = f"sms:{current_phone}?body={encoded_msg}"
-                    st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">📱 إرسال SMS</button></a>', unsafe_allow_html=True)
-                else:
-                    st.button("❌ لا يوجد رقم", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
-            
-            st.markdown("<div style='margin-bottom:25px;'></div>", unsafe_allow_html=True)
-    else:
-        st.info("💡 الجدول فارغ حالياً، قم برفع ملف أونكس بالأعلى لعرض بيانات العملاء.")
-
-with tab2:
-    st.subheader("🔌 إعدادات الربط الآلي المباشر (API)")
-    st.info("🔗 هذا القسم مخصص لربط سيرفر أونكس في المحل مباشرة بالويب لرفع المديونيات تلقائياً.")
+            # تقسيم السطر إلى 5 خانات متناسقة (أزرار التحكم والتنقل)
+            col1,
