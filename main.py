@@ -18,7 +18,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">إدارة مديونيات السوق، تحديد الفئات، واستثناء وتفعيل العملاء بمرونة كاملة</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">إدارة مديونيات السوق، تحديد الفئات، واستثناء وتفعيل العملاء بأمان كامل وبدون تعليق</div>', unsafe_allow_html=True)
 
 # دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
 def extract_yemeni_phone(text):
@@ -42,12 +42,23 @@ def clean_customer_name(text):
 # خيارات فئات التكرار المتاحة
 frequency_options = ["كل 3 أيام", "أسبوعي", "كل أسبوعين", "شهري", "إيقاف التذكير"]
 
-# تهيئة قاعدة البيانات الاسترشادية مع إضافة حالة الاستثناء الافتراضية
+# تهيئة قاعدة البيانات وقائمة الأسماء المستثناة بشكل مستقل وآمن
 if 'accounts_data' not in st.session_state:
     st.session_state.accounts_data = pd.DataFrame([
-        {"customer": "مؤسسة النجاح للتجارة", "phone": "770000000", "balance": 150000.0, "currency": "YER", "frequency": "أسبوعي", "active": True},
-        {"customer": "شركة شمسان للمرطبات", "phone": "730000000", "balance": 2500.0, "currency": "USD", "frequency": "كل 3 أيام", "active": True}
+        {"customer": "مؤسسة النجاح للتجارة", "phone": "770000000", "balance": 150000.0, "currency": "YER", "frequency": "أسبوعي"},
+        {"customer": "شركة شمسان للمرطبات", "phone": "730000000", "balance": 2500.0, "currency": "USD", "frequency": "كل 3 أيام"}
     ])
+
+if 'excluded_customers' not in st.session_state:
+    st.session_state.excluded_customers = set()
+
+# استقبال الرسائل التنبيهية لعرضها بالأعلى بأمان
+if 'success_msg' not in st.session_state:
+    st.session_state.success_msg = ""
+
+if st.session_state.success_msg:
+    st.success(st.session_state.success_msg)
+    st.session_state.success_msg = "" # تصفير الرسالة بعد العرض
 
 tab1, tab2 = st.tabs(["📁 الطريقة الأولى: رفع ملف أونكس وتعديل الخيارات", "⚙️ إعدادات الربط التلقائي (المباشر)"])
 
@@ -89,12 +100,12 @@ with tab1:
                             "phone": phone if phone else "لا يوجد رقم",
                             "balance": balance_val,
                             "currency": str(raw_currency).strip(),
-                            "frequency": "أسبوعي",
-                            "active": True
+                            "frequency": "أسبوعي"
                         })
                 
                 if parsed_list:
                     st.session_state.accounts_data = pd.DataFrame(parsed_list)
+                    st.session_state.excluded_customers = set() # تصفير المستثنين عند رفع ملف جديد
                     st.success(f"✅ تم بنجاح استيراد {len(parsed_list)} عميل من ملف أونكس بنجاح!")
                 else:
                     st.warning("⚠️ لم يتم العثور على مبالغ متبقية أكبر من الصفر في العمود المحدد.")
@@ -106,14 +117,12 @@ with tab1:
     st.write("### 📋 كشف حسابات السوق النشطة:")
     
     if not st.session_state.accounts_data.empty:
-        # فصل الحسابات: النشطة والمستثناة
-        active_df = st.session_state.accounts_data[st.session_state.accounts_data["active"] == True]
-        banned_df = st.session_state.accounts_data[st.session_state.accounts_data["active"] == False]
-        
-        updated_rows = []
+        # فلترة البيانات المدخلة بشكل آمن قبل حلقة العرض والتفاعل
+        df_all = st.session_state.accounts_data
+        active_df = df_all[~df_all["customer"].isin(st.session_state.excluded_customers)].reset_index(drop=True)
+        banned_df = df_all[df_all["customer"].isin(st.session_state.excluded_customers)].reset_index(drop=True)
         
         if not active_df.empty:
-            # ترويسة الجدول الحالية للعملاء النشطين
             col_c1, col_c2, col_c3, col_c4, col_c5, col_c6 = st.columns([3, 1.5, 1.5, 1, 1.5, 1.5])
             with col_c1: st.markdown("**العميل**")
             with col_c2: st.markdown("**الهاتف**")
@@ -123,12 +132,7 @@ with tab1:
             with col_c6: st.markdown("**إجراء الاستثناء 🛠️**")
             st.markdown("---")
             
-            for idx, row in st.session_state.accounts_data.iterrows():
-                # إذا كان العميل مستثنى، نتخطى عرضه في الجدول الرئيسي ليختفي فوراً
-                if not row["active"]:
-                    updated_rows.append(row.to_dict())
-                    continue
-                
+            for idx, row in active_df.iterrows():
                 c1, c2, c3, c4, c5, c6 = st.columns([3, 1.5, 1.5, 1, 1.5, 1.5])
                 with c1: st.write(row['customer'])
                 with c2: st.write(row['phone'])
@@ -141,42 +145,28 @@ with tab1:
                         f"فئة {row['customer']}", 
                         frequency_options, 
                         index=frequency_options.index(current_freq) if current_freq in frequency_options else 1,
-                        key=f"freq_{idx}",
+                        key=f"freq_{row['customer']}",
                         label_visibility="collapsed"
                     )
+                    # حفظ التحديث المباشر للفئة في قاعدة البيانات الأساسية
+                    base_idx = st.session_state.accounts_data[st.session_state.accounts_data["customer"] == row["customer"]].index
+                    if len(base_idx) > 0:
+                        st.session_state.accounts_data.at[base_idx[0], "frequency"] = chosen_freq
                 
                 with c6:
-                    # عند الضغط، تظهر رسالة التنبيه المحددة ويتحول لـ False
-                    if st.button("🚫 استثناء العميل", key=f"ban_{idx}", use_container_width=True):
-                        row["active"] = False
-                        # حفظ تعديل الفئة الحالية قبل الاستثناء
-                        row["frequency"] = chosen_freq
-                        updated_rows.append(row.to_dict())
-                        # إضافة باقي العناصر المتبقية في الدورة الحالية لتفادي الفقدان
-                        for sub_idx, sub_row in st.session_state.accounts_data.iloc[idx+1:].iterrows():
-                            updated_rows.append(sub_row.to_dict())
-                        st.session_state.accounts_data = pd.DataFrame(updated_rows)
-                        st.success(f"📌 تم استثناء العميل [{row['customer']}] بنجاح من قائمة الإرسال!")
+                    # زر الاستثناء الآمن
+                    if st.button("🚫 استثناء العميل", key=f"ban_{row['customer']}", use_container_width=True):
+                        st.session_state.excluded_customers.add(row["customer"])
+                        st.session_state.success_msg = f"📌 تم استثناء العميل [{row['customer']}] واختفاؤه بنجاح!"
                         st.rerun()
-                
-                updated_rows.append({
-                    "customer": row["customer"],
-                    "phone": row["phone"],
-                    "balance": row["balance"],
-                    "currency": row["currency"],
-                    "frequency": chosen_freq,
-                    "active": True
-                })
-            
-            st.session_state.accounts_data = pd.DataFrame(updated_rows)
         else:
-            st.warning("💡 القائمة الرئيسية فارغة، جميع العملاء تم استثناؤهم.")
+            st.warning("💡 القائمة الرئيسية فارغة، جميع العملاء الحاليين في قائمة الاستثناء.")
 
-        # --- الجزء الجديد والمطلوب: شاشة التفعيل الفردية للعملاء المستثنيين ---
+        # --- قسم التفعيل الآمن المنفصل بالأسفل ---
         if not banned_df.empty:
             st.markdown("---")
             with st.expander("👁️ تفقد وإعادة تفعيل العملاء المستثنيين من الإرسال"):
-                st.write("القائمة التالية تحتوي على العملاء الذين تم إخفاؤهم مؤقتاً:")
+                st.write("القائمة التالية تحتوي على العملاء المستثنيين حالياً:")
                 
                 col_b1, col_b2, col_b3, col_b4 = st.columns([4, 2, 2, 2])
                 with col_b1: st.markdown("**اسم العميل المستثنى**")
@@ -184,25 +174,23 @@ with tab1:
                 with col_b3: st.markdown("**العملة**")
                 with col_b4: st.markdown("**إجراء التفعيل ⚡**")
                 
-                for idx, row in st.session_state.accounts_data.iterrows():
-                    if row["active"]:
-                        continue
-                    
+                for idx, row in banned_df.iterrows():
                     b1, b2, b3, b4 = st.columns([4, 2, 2, 2])
                     with b1: st.write(f"<span style='color:gray;'>{row['customer']}</span>", unsafe_allow_html=True)
                     with b2: st.write(f"<span style='color:gray;'>{row['balance']:,.2f}</span>", unsafe_allow_html=True)
                     with b3: st.write(f"<span style='color:gray;'>{row['currency']}</span>", unsafe_allow_html=True)
                     with b4:
-                        if st.button("✅ تفعيل العميل", key=f"act_{idx}", use_container_width=True):
-                            st.session_state.accounts_data.at[idx, "active"] = True
-                            st.success(f"🔄 تم إعادة تفعيل العميل [{row['customer']}] وإعادته للقائمة الرئيسية.")
+                        if st.button("✅ تفعيل العميل", key=f"act_{row['customer']}", use_container_width=True):
+                            st.session_state.excluded_customers.remove(row["customer"])
+                            st.session_state.success_msg = f"🔄 تم إعادة تفعيل العميل [{row['customer']}] وإعادته للقائمة الرئيسية بنجاح."
                             st.rerun()
 
-        # --- قسم إرسال التذكيرات والمتابعة الجاهزة للعملاء النشطين فقط ---
+        # --- قسم إرسال التذكيرات والمتابعة الجاهزة (للنشطين فقط) ---
         st.markdown("---")
         st.write("### 🚀 إرسال التذكيرات والمتابعة الجاهزة")
         
-        final_active_df = st.session_state.accounts_data[st.session_state.accounts_data["active"] == True]
+        # إعادة حساب العملاء النشطين مجدداً للقسم الأخير لضمان المزامنة الصارمة
+        final_active_df = st.session_state.accounts_data[~st.session_state.accounts_data["customer"].isin(st.session_state.excluded_customers)]
         
         if not final_active_df.empty:
             client_options = final_active_df["customer"].tolist()
