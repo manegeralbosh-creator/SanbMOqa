@@ -12,14 +12,14 @@ st.markdown("""
     .reportview-container { background: #faf8f5; }
     .main-title { color: #1E3A8A; text-align: center; font-size: 32px; font-weight: bold; margin-bottom: 20px; }
     .sub-title { color: #4B5563; text-align: center; font-size: 18px; margin-bottom: 30px; }
-    .stSelectbox { margin-bottom: -15px; }
+    .stSelectbox, .stTextInput { margin-bottom: -15px; }
     div[data-testid="stBlock"] { padding: 5px; }
     .client-card { background-color: #ffffff; padding: 12px; border-radius: 8px; border-right: 5px solid #1E3A8A; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">إدارة مديونيات السوق وإرسال التذكيرات مباشرة لكل عميل بكل سهولة واستقرار</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">إدارة مديونيات السوق، تعديل الأرقام الناقصة، وإرسال التذكيرات فورياً بأعلى استقرار</div>', unsafe_allow_html=True)
 
 # دالة ذكية لاستخراج رقم الهاتف من اسم العميل (أونكس)
 def extract_yemeni_phone(text):
@@ -49,6 +49,10 @@ if 'raw_accounts' not in st.session_state:
 
 if 'freq_dict' not in st.session_state:
     st.session_state.freq_dict = {}
+
+# قاموس لتخزين الأرقام المعدلة يدوياً للعملاء
+if 'custom_phones' not in st.session_state:
+    st.session_state.custom_phones = {}
 
 tab1, tab2 = st.tabs(["📁 رفع ملف أونكس وإرسال التذكيرات", "⚙️ إعدادات الربط التلقائي (المباشر)"])
 
@@ -108,9 +112,12 @@ with tab1:
     st.write("### 📋 كشف مديونيات السوق وإرسال التذكيرات الفوري:")
     
     if st.session_state.raw_accounts:
-        st.info("💡 يمكنك الآن مراجعة كل عميل وتحديد توقيته أو إرسال التذكير له مباشرة من تحت اسمه بدون أي تعليق في النظام.")
+        st.info("💡 للعميل الذي ليس لديه رقم، يمكنك كتابة الرقم الجديد في الخانة المخصصة تحت اسمه لتفعيل الإرسال له فوراً.")
         
         for item in st.session_state.raw_accounts:
+            # التحقق هل قام المستخدم بتعديل الرقم يدوياً لهذا العميل سابقاً؟
+            current_phone = st.session_state.custom_phones.get(item["id"], item["phone"])
+            
             # صياغة نص الرسالة الجاهزة لكل عميل تلقائياً
             msg = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {item['balance']:,.2f} {item['currency']}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
             encoded_msg = urllib.parse.quote(msg)
@@ -119,13 +126,13 @@ with tab1:
             st.markdown(f"""
             <div class="client-card">
                 <span style="font-size:18px; font-weight:bold; color:#1E3A8A;">👤 {item['customer']}</span> | 
-                <span style="color:#4B5563;">📱 الهاتف: {item['phone']}</span> | 
+                <span style="color:#4B5563;">📱 الهاتف الحالي: {current_phone}</span> | 
                 <span style="font-size:16px; font-weight:bold; color:#B91C1C;">💰 المتبقي: {item['balance']:,.2f} {item['currency']}</span>
             </div>
             """, unsafe_allow_html=True)
             
-            # صف الأزرار والتوقيت الخاص بكل عميل بالأسفل مباشرة
-            col1, col2, col3 = st.columns([2, 2, 2])
+            # صف الأزرار والتعديل والتوقيت الخاص بكل عميل بالأسفل مباشرة
+            col1, col2, col3, col4 = st.columns([1.5, 1.5, 1.5, 1.5])
             
             with col1:
                 # خيار التوقيت لكل عميل
@@ -140,21 +147,36 @@ with tab1:
                 st.session_state.freq_dict[item["id"]] = chosen_freq
                 
             with col2:
-                # زر الواتساب
-                if item["phone"] != "لا يوجد رقم":
-                    whatsapp_phone = "967" + item["phone"] if not item["phone"].startswith("967") else item["phone"]
-                    whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
-                    st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">💬 مراسلة واتساب</button></a>', unsafe_allow_html=True)
-                else:
-                    st.button("❌ لا يوجد رقم للواتساب", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
-                    
+                # خانة إدخال رقم الجوال البديل إذا كان الرقم مفقوداً أو تود استبداله
+                input_placeholder = "أدخل رقم الجوال الجديد هنا" if item["phone"] == "لا يوجد رقم" else "استبدال الرقم الحالي"
+                new_phone_input = st.text_input(
+                    f"تعديل رقم {item['customer']}", 
+                    value="" if current_phone == "لا يوجد رقم" else current_phone,
+                    placeholder=input_placeholder,
+                    key=f"input_{item['id']}",
+                    label_visibility="collapsed"
+                )
+                # إذا قام بوضع رقم جديد نقوم بحفظه في القاموس فوراً
+                if new_phone_input.strip() != "" and new_phone_input.strip() != "لا يوجد رقم":
+                    st.session_state.custom_phones[item["id"]] = new_phone_input.strip()
+                    current_phone = new_phone_input.strip()
+                
             with col3:
-                # زر الرسالة العادية SMS
-                if item["phone"] != "لا يوجد رقم":
-                    sms_url = f"sms:{item['phone']}?body={encoded_msg}"
-                    st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">📱 إرسال SMS مجاناً</button></a>', unsafe_allow_html=True)
+                # زر الواتساب (يعمل فقط إذا كان هناك رقم مستخرج أو مدخل يدوياً)
+                if current_phone and current_phone != "لا يوجد رقم":
+                    whatsapp_phone = "967" + current_phone if not current_phone.startswith("967") else current_phone
+                    whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
+                    st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">💬 واتساب</button></a>', unsafe_allow_html=True)
                 else:
-                    st.button("❌ لا يوجد رقم لـ SMS", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
+                    st.button("❌ ضع رقم أولاً", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
+                    
+            with col4:
+                # زر الرسالة العادية SMS
+                if current_phone and current_phone != "لا يوجد رقم":
+                    sms_url = f"sms:{current_phone}?body={encoded_msg}"
+                    st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: bold; width: 100%;">📱 إرسال SMS</button></a>', unsafe_allow_html=True)
+                else:
+                    st.button("❌ لا يوجد رقم", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
             
             st.markdown("<div style='margin-bottom:25px;'></div>", unsafe_allow_html=True)
     else:
