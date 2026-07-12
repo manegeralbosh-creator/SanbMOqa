@@ -9,7 +9,8 @@ from supabase import create_client, Client
 SUPABASE_URL = "https://wtavxyfknypaintaggeq.supabase.co"
 SUPABASE_KEY = " sb_publishable_r64A2FfAUHYF-L5On2DiCw_EEkJMsDY "
 
-# إعدادات الصفحة الأساسية بطابع رسمي
+
+ إعدادات الصفحة الأساسية بطابع رسمي
 st.set_page_config(page_title="نظام محلات البوش للحسابات", page_icon="📊", layout="wide")
 
 st.markdown("""
@@ -53,7 +54,7 @@ frequency_options = ["كل 3 أيام", "أسبوعي", "كل أسبوعين", "
 freq_days_map = {"كل 3 أيام": 3, "أسبوعي": 7, "كل أسبوعين": 14, "شهري": 30, "إيقاف التذكير": 99999}
 
 if supabase is None:
-    st.warning("⚠️ يرجى إدخال مفتاح الربط الخاص بـ Supabase (SUPABASE_KEY) في السطر رقم 10 لتشغيل الحفظ الدائم.")
+    st.warning("⚠️ يرجى إدخال مفتاح الربط الخاص بـ Supabase (SUPABASE_KEY) في السطر رقم 14 لتشغيل الحفظ الدائم.")
 else:
     tab1, tab2 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "📥 رفع وتحديث بيانات أونكس"])
     
@@ -62,56 +63,81 @@ else:
         uploaded_file = st.file_uploader("قم برفع ملف الإكسل المستخرج حديثاً", type=["xlsx", "xls", "csv"])
         
         if uploaded_file is not None:
+            df_onyx = None
+            file_bytes = uploaded_file.read()
+            
+            # محاولة القراءة بطرق متعددة متوافقة مع ترميز أونكس الخاص
             try:
-                # قراءة مرنة ومحمية للملف لمنع انهيار السيرفر
                 if uploaded_file.name.endswith('.csv'):
-                    df_onyx = pd.read_csv(uploaded_file)
+                    df_onyx = pd.read_csv(io.BytesIO(file_bytes))
                 else:
-                    df_onyx = pd.read_excel(uploaded_file, engine='openpyxl')
+                    try:
+                        # المحاولة الأولى: كملف إكسل قياسي
+                        df_onyx = pd.read_excel(io.BytesIO(file_bytes))
+                    except Exception:
+                        try:
+                            # المحاولة الثانية: بمحرك xlrd للملفات القديمة xls
+                            df_onyx = pd.read_excel(io.BytesIO(file_bytes), engine='xlrd')
+                        except Exception:
+                            try:
+                                # المحاولة الثالثة: إذا كان ملف أونكس عبارة عن HTML متنكر بصيغة إكسل
+                                dfs = pd.read_html(io.BytesIO(file_bytes))
+                                if dfs:
+                                    df_onyx = dfs[0]
+                            except Exception:
+                                # المحاولة الرابعة: كملف نصي عادي
+                                df_onyx = pd.read_csv(io.BytesIO(file_bytes), sep='\t')
+            except Exception as read_err:
+                st.error(f"⚠️ تعذر قراءة بنية هذا الملف: {read_err}")
                 
-                if len(df_onyx.columns) < 4:
-                    st.error("❌ ملف الإكسل المرفوع لا يحتوي على الأعمدة الأربعة المطلوبة لنظام أونكس.")
-                else:
-                    col_name, col_currency, col_balance = df_onyx.columns[1], df_onyx.columns[2], df_onyx.columns[3]
-                    
-                    success_count = 0
-                    for idx, row in df_onyx.iterrows():
-                        raw_name = row[col_name]
-                        if pd.isna(raw_name) or "اسم العميل" in str(raw_name) or "الاسم" in str(raw_name): 
-                            continue
+            if df_onyx is not None:
+                try:
+                    if len(df_onyx.columns) < 4:
+                        st.error("❌ ملف الإكسل المرفوع لا يحتوي على الأعمدة الأربعة المطلوبة لنظام أونكس.")
+                    else:
+                        col_name, col_currency, col_balance = df_onyx.columns[1], df_onyx.columns[2], df_onyx.columns[3]
                         
-                        clean_name = clean_customer_name(raw_name)
-                        if not clean_name: 
-                            continue
+                        success_count = 0
+                        for idx, row in df_onyx.iterrows():
+                            raw_name = row[col_name]
+                            if pd.isna(raw_name) or "اسم العميل" in str(raw_name) or "الاسم" in str(raw_name): 
+                                continue
                             
-                        phone = extract_yemeni_phone(raw_name)
-                        
-                        try: 
-                            balance_str = str(row[col_balance]).replace(',', '').strip()
-                            balance_val = int(float(balance_str))
-                        except: 
-                            balance_val = 0
-                        
-                        if balance_val > 0:
-                            existing = supabase.table("customers_debts").select("*").eq("customer_name", clean_name).execute()
-                            if existing.data:
-                                supabase.table("customers_debts").update({
-                                    "balance": balance_val, 
-                                    "currency": str(row[col_currency]).strip()
-                                }).eq("customer_name", clean_name).execute()
-                            else:
-                                supabase.table("customers_debts").insert({
-                                    "customer_name": clean_name, 
-                                    "phone_number": phone if phone else "لا يوجد رقم",
-                                    "balance": balance_val, 
-                                    "currency": str(row[col_currency]).strip(),
-                                    "frequency": "أسبوعي", 
-                                    "last_sent_date": None
-                                }).execute()
-                            success_count += 1
-                    st.success(f"✅ تم تحديث ومزامنة {success_count} عميل في قاعدة البيانات بنجاح!")
-            except Exception as e:
-                st.error(f"⚠️ واجه النظام مشكلة في قراءة خلايا الملف: {e}")
+                            clean_name = clean_customer_name(raw_name)
+                            if not clean_name: 
+                                continue
+                                
+                            phone = extract_yemeni_phone(raw_name)
+                            
+                            try: 
+                                balance_str = str(row[col_balance]).replace(',', '').strip()
+                                balance_val = int(float(balance_str))
+                            except: 
+                                balance_val = 0
+                            
+                            if balance_val > 0:
+                                existing = supabase.table("customers_debts").select("*").eq("customer_name", clean_name).execute()
+                                if existing.data:
+                                    supabase.table("customers_debts").update({
+                                        "balance": balance_val, 
+                                        "currency": str(row[col_currency]).strip()
+                                    }).eq("customer_name", clean_name).execute()
+                                else:
+                                    supabase.table("customers_debts").insert({
+                                        "customer_name": clean_name, 
+                                        "phone_number": phone if phone else "لا يوجد رقم",
+                                        "balance": balance_val, 
+                                        "currency": str(row[col_currency]).strip(),
+                                        "frequency": "أسبوعي", 
+                                        "last_sent_date": None
+                                    }).execute()
+                                success_count += 1
+                        st.success(f"✅ تم تحديث ومزامنة {success_count} عميل في قاعدة البيانات بنجاح!")
+                except Exception as parse_err:
+                    st.error(f"⚠️ واجه النظام مشكلة في معالجة خلايا الملف: {parse_err}")
+            else:
+                if not st.session_state.get('error_shown', False):
+                    st.error("❌ تنسيق هذا الملف غير مدعوم مباشرة، يرجى حفظ ملف أونكس بصيغة Excel Workbook (XLSX) وإعادة رفعه.")
 
     with tab1:
         try:
@@ -195,4 +221,4 @@ else:
             else:
                 st.success("🎉 ممتاز جداً! لا يوجد أي عملاء مستحقين للتذكير اليوم، تم تذكير الجميع بانتظام.")
         else:
-            st.info("💡 قاعدة البيانات فارغة حالياً. انتقل للتبويب الثاني وارفع ملف أونكس لتغذية النظام.")
+            st.info("💡 قاعدة البيانات فارغة حالياً. رفع ملف أونكس بالتبويب الثاني وسيقوم النظام بقراءته وتغذية الحسابات تلقائياً.")
