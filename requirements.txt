@@ -1,5 +1,4 @@
 streamlit
 pandas
 openpyxl
-xlrd
-fpdf2
+supabase
