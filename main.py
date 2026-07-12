@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 import urllib.parse
+import urllib.request
+import os
 from fpdf import FPDF
 
 # إعدادات الصفحة الأساسية
@@ -34,6 +36,22 @@ st.markdown("""
 st.markdown('<div class="main-title">📊 نظام محلات البوش لخدمات الحسابات والتذكير الآلي</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">إدارة مديونيات السوق، الإحصائيات الذكية، وتوليد كشوفات PDF فورية</div>', unsafe_allow_html=True)
 
+# دالة لتحميل خط عربي يدعم الـ Unicode تلقائياً لمنع خطأ الترميز
+@st.cache_resource
+def download_arabic_font():
+    font_path = "Amiri-Regular.ttf"
+    if not os.path.exists(font_path):
+        # تحميل خط أميري العربي من خوادم جوجل للخطوط بشكل آمن
+        url = "https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf"
+        try:
+            urllib.request.urlretrieve(url, font_path)
+        except:
+            pass
+    return font_path
+
+# تشغيل دالة تجهيز الخط
+font_file = download_arabic_font()
+
 # دالة ذكية لاستخراج رقم الهاتف من اسم العميل وتجنب الأصفار الزائدة بالبداية
 def extract_yemeni_phone(text):
     if pd.isna(text):
@@ -53,20 +71,26 @@ def clean_customer_name(text):
     text_clean = re.sub(r'[/\\\-\d]+.*', '', text_str)
     return text_clean.strip()
 
-# دالة لتوليد ملف PDF لكشف الحساب
+# دالة آمنة ومحدثة لتوليد ملف PDF يدعم الأسماء العربية بدون خطأ الترميز
 def generate_pdf(customer_name, balance, currency):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Helvetica", size=16)
     
+    # التحقق من وجود ملف الخط وتفعيله لدعم الـ Unicode
+    if os.path.exists("Amiri-Regular.ttf"):
+        pdf.add_font("Amiri", "", "Amiri-Regular.ttf")
+        pdf.set_font("Amiri", size=16)
+    else:
+        pdf.set_font("Helvetica", size=14)
+        
     # عنوان الكشف
     pdf.cell(200, 10, txt="Al-Boush Trading Establishment", ln=True, align='C')
     pdf.cell(200, 10, txt="Statement of Account / Debt Reminder", ln=True, align='C')
     pdf.ln(10)
     
-    # تفاصيل الحساب
-    pdf.set_font("Helvetica", size=12)
-    pdf.cell(200, 10, txt=f"Customer Name: {customer_name}", ln=True, align='L')
+    # تفاصيل الحساب (تصفية النص لمنع الأخطاء)
+    safe_name = str(customer_name).encode('utf-8', 'ignore').decode('utf-8')
+    pdf.cell(200, 10, txt=f"Customer Name: {safe_name}", ln=True, align='L')
     pdf.cell(200, 10, txt=f"Outstanding Balance: {balance:,} {currency}", ln=True, align='L')
     pdf.ln(10)
     
@@ -148,12 +172,10 @@ with tab1:
     if st.session_state.raw_accounts:
         st.write("### 📊 لوحة ملخص مديونيات السوق الحالية:")
         
-        # حساب الإحصائيات حسب العملات المختلفة المتواجدة في الملف
         df_stats = pd.DataFrame(st.session_state.raw_accounts)
         currency_groups = df_stats.groupby('currency')['balance'].sum().to_dict()
         total_customers = len(df_stats)
         
-        # عرض الكروت الإحصائية بشكل أفقي أنيق
         stat_cols = st.columns(len(currency_groups) + 1)
         with stat_cols[0]:
             st.markdown(f'<div class="metric-box"><span style="color:#4B5563; font-weight:bold;">👥 إجمالي العملاء</span><br><span style="font-size:24px; font-weight:bold; color:#1E3A8A;">{total_customers} عميل</span></div>', unsafe_allow_html=True)
@@ -187,7 +209,6 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
             
-            # تقسيم السطر بدقة ليشمل خيار تصدير PDF الجديد بجانب الأزرار السابقة
             col_one, col_two, col_three, col_four, col_five, col_six = st.columns([1, 1.2, 1, 1, 1, 1])
             
             with col_one:
@@ -220,16 +241,19 @@ with tab1:
                 st.markdown(f'<button class="copy-btn" onclick="copyToClipboard(\'{customer_escaped}\')">📋 نسخ الاسم</button>', unsafe_allow_html=True)
             
             with col_four:
-                # 📄 زر توليد وتحميل كشف الحساب بصيغة PDF فوراً
-                pdf_data = generate_pdf(item['customer'], item['balance'], item['currency'])
-                st.download_button(
-                    label="📄 كشف PDF",
-                    data=pdf_data,
-                    file_name=f"كشف_حساب_{item['customer']}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_{item['id']}",
-                    use_container_width=True
-                )
+                # توليد الملف الآمن
+                try:
+                    pdf_data = generate_pdf(item['customer'], item['balance'], item['currency'])
+                    st.download_button(
+                        label="📄 كشف PDF",
+                        data=pdf_data,
+                        file_name=f"كشف_حساب_{item['customer']}.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{item['id']}",
+                        use_container_width=True
+                    )
+                except:
+                    st.button("⚠️ خطأ كشف", key=f"pdf_err_{item['id']}", disabled=True, use_container_width=True)
                 
             with col_five:
                 if phone_to_send and phone_to_send != "لا يوجد رقم":
