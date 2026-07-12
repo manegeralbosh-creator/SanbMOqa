@@ -5,7 +5,7 @@ import urllib.parse
 from datetime import datetime
 from supabase import create_client, Client
 
-# 🔑 تم وضع رابط مشروعك هنا تلقائياً، يرجى وضع مفتاح anon key الخاص بك في السطر السفلي
+# 🔑 تم وضع رابط مشروعك هنا، ضع مفتاح anon public KEY الخاص بك في السطر السفلي
 SUPABASE_URL = "https://wtavxyfknypaintaggeq.supabase.co"
 SUPABASE_KEY = " sb_publishable_r64A2FfAUHYF-L5On2DiCw_EEkJMsDY "
 
@@ -53,7 +53,7 @@ frequency_options = ["كل 3 أيام", "أسبوعي", "كل أسبوعين", "
 freq_days_map = {"كل 3 أيام": 3, "أسبوعي": 7, "كل أسبوعين": 14, "شهري": 30, "إيقاف التذكير": 99999}
 
 if supabase is None:
-    st.warning("⚠️ يرجى إدخال مفتاح الربط الخاص بـ Supabase (SUPABASE_KEY) في السطر رقم 8 لتشغيل الحفظ الدائم.")
+    st.warning("⚠️ يرجى إدخال مفتاح الربط الخاص بـ Supabase (SUPABASE_KEY) في السطر رقم 10 لتشغيل الحفظ الدائم.")
 else:
     tab1, tab2 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "📥 رفع وتحديث بيانات أونكس"])
     
@@ -63,33 +63,55 @@ else:
         
         if uploaded_file is not None:
             try:
-                df_onyx = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                col_name, col_currency, col_balance = df_onyx.columns[1], df_onyx.columns[2], df_onyx.columns[3]
+                # قراءة مرنة ومحمية للملف لمنع انهيار السيرفر
+                if uploaded_file.name.endswith('.csv'):
+                    df_onyx = pd.read_csv(uploaded_file)
+                else:
+                    df_onyx = pd.read_excel(uploaded_file, engine='openpyxl')
                 
-                success_count = 0
-                for idx, row in df_onyx.iterrows():
-                    raw_name = row[col_name]
-                    if pd.isna(raw_name) or "اسم العميل" in str(raw_name): continue
+                if len(df_onyx.columns) < 4:
+                    st.error("❌ ملف الإكسل المرفوع لا يحتوي على الأعمدة الأربعة المطلوبة لنظام أونكس.")
+                else:
+                    col_name, col_currency, col_balance = df_onyx.columns[1], df_onyx.columns[2], df_onyx.columns[3]
                     
-                    clean_name = clean_customer_name(raw_name)
-                    phone = extract_yemeni_phone(raw_name)
-                    try: balance_val = int(float(str(row[col_balance]).replace(',', '')))
-                    except: balance_val = 0
-                    
-                    if balance_val > 0:
-                        existing = supabase.table("customers_debts").select("*").eq("customer_name", clean_name).execute()
-                        if existing.data:
-                            supabase.table("customers_debts").update({"balance": balance_val, "currency": str(row[col_currency]).strip()}).eq("customer_name", clean_name).execute()
-                        else:
-                            supabase.table("customers_debts").insert({
-                                "customer_name": clean_name, "phone_number": phone if phone else "لا يوجد رقم",
-                                "balance": balance_val, "currency": str(row[col_currency]).strip(),
-                                "frequency": "أسبوعي", "last_sent_date": None
-                            }).execute()
-                        success_count += 1
-                st.success(f"✅ تم تحديث ومزامنة {success_count} عميل في قاعدة البيانات الدائمة بنجاح!")
+                    success_count = 0
+                    for idx, row in df_onyx.iterrows():
+                        raw_name = row[col_name]
+                        if pd.isna(raw_name) or "اسم العميل" in str(raw_name) or "الاسم" in str(raw_name): 
+                            continue
+                        
+                        clean_name = clean_customer_name(raw_name)
+                        if not clean_name: 
+                            continue
+                            
+                        phone = extract_yemeni_phone(raw_name)
+                        
+                        try: 
+                            balance_str = str(row[col_balance]).replace(',', '').strip()
+                            balance_val = int(float(balance_str))
+                        except: 
+                            balance_val = 0
+                        
+                        if balance_val > 0:
+                            existing = supabase.table("customers_debts").select("*").eq("customer_name", clean_name).execute()
+                            if existing.data:
+                                supabase.table("customers_debts").update({
+                                    "balance": balance_val, 
+                                    "currency": str(row[col_currency]).strip()
+                                }).eq("customer_name", clean_name).execute()
+                            else:
+                                supabase.table("customers_debts").insert({
+                                    "customer_name": clean_name, 
+                                    "phone_number": phone if phone else "لا يوجد رقم",
+                                    "balance": balance_val, 
+                                    "currency": str(row[col_currency]).strip(),
+                                    "frequency": "أسبوعي", 
+                                    "last_sent_date": None
+                                }).execute()
+                            success_count += 1
+                    st.success(f"✅ تم تحديث ومزامنة {success_count} عميل في قاعدة البيانات بنجاح!")
             except Exception as e:
-                st.error(f"❌ حدث خطأ أثناء المعالجة: {e}")
+                st.error(f"⚠️ واجه النظام مشكلة في قراءة خلايا الملف: {e}")
 
     with tab1:
         try:
