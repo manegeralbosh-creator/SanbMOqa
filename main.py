@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 import urllib.parse
+import io
 from datetime import datetime
 from supabase import create_client, Client
 
@@ -9,8 +10,7 @@ from supabase import create_client, Client
 SUPABASE_URL = "https://wtavxyfknypaintaggeq.supabase.co"
 SUPABASE_KEY = " sb_publishable_r64A2FfAUHYF-L5On2DiCw_EEkJMsDY "
 
-
- إعدادات الصفحة الأساسية بطابع رسمي
+# إعدادات الصفحة الأساسية بطابع رسمي
 st.set_page_config(page_title="نظام محلات البوش للحسابات", page_icon="📊", layout="wide")
 
 st.markdown("""
