@@ -44,12 +44,17 @@ def get_local_db():
 
 conn = get_local_db()
 
-# دالة استخراج وتنظيف أرقام الهواتف اليمنية (77, 73, 71, 70)
-def extract_yemeni_phone(text):
+# دالة مطورة لاستخراج "جميع" أرقام الهواتف اليمنية الموجودة في النص (77, 73, 71, 70) والربط بينها بـ " / "
+def extract_all_yemeni_phones(text):
     if pd.isna(text): return ""
     text_str = str(text).translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
-    match = re.search(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
-    return match.group(1) if match else ""
+    # البحث عن كل الأرقام المطابقة في السطر
+    matches = re.findall(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
+    if matches:
+        # حذف الأرقام المكررة إن وجدت وحفظ الترتيب
+        unique_matches = list(dict.fromkeys(matches))
+        return " / ".join(unique_matches)
+    return ""
 
 # دالة تنظيف اسم العميل من الرموز والتواريخ المستخرجة من أونكس
 def clean_customer_name(text):
@@ -72,7 +77,7 @@ def save_to_local_db(df):
             clean_name = clean_customer_name(raw_name)
             if not clean_name: continue
             
-            phone = extract_yemeni_phone(raw_name)
+            phones = extract_all_yemeni_phones(raw_name)
             
             try: 
                 balance_str = str(row[col_balance]).replace(',', '').strip()
@@ -85,17 +90,18 @@ def save_to_local_db(df):
                 
                 if existing:
                     existing_phone = existing[1]
-                    final_phone = existing_phone if existing_phone and existing_phone != "لا يوجد رقم" else (phone if phone else "لا يوجد رقم")
+                    # إذا كان هناك أرقام قديمة، نحتفظ بها، وإلا نضع الأرقام الجديدة المستخرجة
+                    final_phone = existing_phone if existing_phone and existing_phone != "لا يوجد رقم" else (phones if phones else "لا يوجد رقم")
                     cursor.execute("""
                         UPDATE customers_debts 
-                        SET balance = ?, currency = ?, phone_number = ? 
+                        SET balance = ?, currency = ? , phone_number = ?
                         WHERE customer_name = ?
                     """, (balance_val, str(row[col_currency]).strip(), final_phone, clean_name))
                 else:
                     cursor.execute("""
                         INSERT INTO customers_debts (customer_name, phone_number, balance, currency, frequency) 
                         VALUES (?, ?, ?, ?, 'أسبوعي')
-                    """, (clean_name, phone if phone else "لا يوجد رقم", balance_val, str(row[col_currency]).strip()))
+                    """, (clean_name, phones if phones else "لا يوجد رقم", balance_val, str(row[col_currency]).strip()))
                 success_count += 1
                 
         conn.commit()
@@ -134,12 +140,12 @@ with tab2:
             if success: st.success(msg)
             else: st.error(msg)
 
-# 📊 التبويب الأول: شاشة العرض والإرسال بالجوال (المطور)
+# 📊 التبويب الأول: شاشة العرض والإرسال بالجوال
 with tab1:
-    # 🌟 الميزة الأولى: التحكم في نص الرسالة وتعديلها تلقائياً
+    # إعدادات وتخصيص نص رسالة التذكير
     with st.expander("📝 إعدادات وتخصيص نص رسالة التذكير"):
         default_msg = "تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: [المبلغ] [العملة].\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
-        custom_msg_template = st.text_area("صيغة الرسالة (حافظ على الكلمات التي بين قوسين ليتم استبدالها تلقائياً بالقيم الصحيحة):", value=default_msg, height=120)
+        custom_msg_template = st.text_area("صيغة الرسالة:", value=default_msg, height=120)
 
     # جلب البيانات من القاعدة المحلية
     cursor = conn.cursor()
@@ -160,33 +166,35 @@ with tab1:
                 if (today - last_sent_dt).days >= freq_days_map.get(freq, 7): due_customers.append(cust)
             else: due_customers.append(cust)
         
-        # 🌟 الميزة الثانية: خانة البحث السريع عن اسم عميل معين
+        # خانة البحث السريع
         search_query = st.text_input("🔍 بحث سريع عن عميل بالاسم أو الهاتف:", placeholder="اكتب اسم العميل أو الرقم هنا...")
-        
-        # تصفية الأسماء بناءً على البحث
         if search_query.strip() != "":
             due_customers = [c for c in due_customers if search_query.lower() in c["customer_name"].lower() or search_query in str(c["phone_number"])]
         
         st.write(f"### 🎯 إجمالي الحسابات: {len(all_customers)} | 🔔 المستحقين للمتابعة اليوم: {len(due_customers)}")
         
-        # عرض كروت العملاء المستحقين للتذكير اليوم
+        # عرض كروت العملاء
         for item in due_customers:
-            current_phone = item["phone_number"]
-            phone_to_send = str(current_phone).strip().lstrip('0') if current_phone != "لا يوجد رقم" else ""
+            raw_phone = str(item["phone_number"]).strip()
             
-            # صياغة الرسالة بناءً على القالب المخصص من المستخدم
+            # 🌟 معالجة الأرقام المتعددة: تقسيم النص إذا وجدنا علامة " / " لإنشاء قائمة منسدلة للعميل
+            phone_list = [p.strip() for p in raw_phone.split('/') if p.strip()] if "/" in raw_phone else [raw_phone]
+            if not phone_list or phone_list == ["لا يوجد رقم"]:
+                phone_list = ["لا يوجد رقم"]
+
+            # صياغة الرسالة
             formatted_msg = custom_msg_template.replace("[المبلغ]", f"{item['balance']:,}").replace("[العملة]", item['currency'])
             encoded_msg = urllib.parse.quote(formatted_msg)
             
             st.markdown(f"""
             <div class="client-card">
                 <span style="font-size:17px; font-weight:bold; color:#1E3A8A;">👤 {item['customer_name']}</span> | 
-                <span style="color:#4B5563;">📱 الهاتف: {current_phone}</span> | 
+                <span style="color:#4B5563;">📱 الهاتف الحالي: {raw_phone}</span> | 
                 <span style="font-size:15px; font-weight:bold; color:#B91C1C;">💰 المتبقي: {item['balance']:,} {item['currency']}</span>
             </div>
             """, unsafe_allow_html=True)
             
-            col_one, col_two, col_three, col_four = st.columns([1.3, 1.5, 1.2, 1.2])
+            col_one, col_two, col_three, col_four = st.columns([1.2, 1.6, 1.1, 1.1])
             
             with col_one:
                 chosen_freq = st.selectbox(f"freq_{item['id']}", frequency_options, index=frequency_options.index(item["frequency"]) if item["frequency"] in frequency_options else 1, key=f"time_{item['id']}", label_visibility="collapsed")
@@ -196,41 +204,23 @@ with tab1:
                     st.rerun()
             
             with col_two:
-                new_phone = st.text_input(f"phone_{item['id']}", value="" if current_phone == "لا يوجد رقم" else current_phone, placeholder="تعديل رقم", key=f"input_{item['id']}", label_visibility="collapsed")
-                if new_phone.strip() != "" and new_phone.strip() != current_phone:
-                    cursor.execute("UPDATE customers_debts SET phone_number = ? WHERE id = ?", (new_phone.strip(), item["id"]))
-                    conn.commit()
-                    st.rerun()
-            
+                # 🌟 إذا كان للعميل رقم واحد، تظهر خانة نصية عادية لتعديله. 
+                # وإذا كان لديه أكثر من رقم، تظهر "قائمة منسدلة" تختار منها الرقم المراد الإرسال إليه حالياً!
+                if len(phone_list) > 1:
+                    selected_phone = st.selectbox(f"تحديد الرقم الكلي", phone_list, key=f"select_p_{item['id']}", label_visibility="collapsed")
+                    phone_to_send = selected_phone.lstrip('0')
+                else:
+                    new_phone = st.text_input(f"phone_{item['id']}", value="" if phone_list[0] == "لا يوجد رقم" else phone_list[0], placeholder="رقم الهاتف (أو رقمين مفصولين بـ /)", key=f"input_{item['id']}", label_visibility="collapsed")
+                    if new_phone.strip() != "" and new_phone.strip() != raw_phone:
+                        # تنظيف وحفظ التعديل الجديد (سواء رقم أو رقمين مفصولين)
+                        cursor.execute("UPDATE customers_debts SET phone_number = ? WHERE id = ?", (new_phone.strip(), item["id"]))
+                        conn.commit()
+                        st.rerun()
+                    phone_to_send = new_phone.strip().lstrip('0') if new_phone.strip() != "" else ""
+
             with col_three:
-                if phone_to_send:
+                if phone_to_send and phone_to_send != "لا يوجد رقم":
                     whatsapp_phone = "967" + phone_to_send if not phone_to_send.startswith("967") else phone_to_send
                     whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
                     
-                    if st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%;">💬 واتساب</button></a>', unsafe_allow_html=True):
-                        cursor.execute("UPDATE customers_debts SET last_sent_date = ? WHERE id = ?", (str(today), item["id"]))
-                        conn.commit()
-                else: 
-                    st.button("🚫 بلا رقم", key=f"wa_err_{item['id']}", disabled=True, use_container_width=True)
-            
-            with col_four:
-                if phone_to_send:
-                    sms_url = f"sms:{phone_to_send}?body={encoded_msg}"
-                    if st.markdown(f'<a href="{sms_url}"><button style="background-color: #1E3A8A; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%;">📱 SMS</button></a>', unsafe_allow_html=True):
-                        cursor.execute("UPDATE customers_debts SET last_sent_date = ? WHERE id = ?", (str(today), item["id"]))
-                        conn.commit()
-                else: 
-                    st.button("🚫 ناقص", key=f"sms_err_{item['id']}", disabled=True, use_container_width=True)
-            
-            st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
-            
-        # 🌟 الميزة الثالثة: جدول سفلي يعرض السجل الكامل وتواريخ آخر مراسلة لجميع العملاء
-        st.write("---")
-        st.write("### 📜 السجل الكامل وتواريخ المراسلة السابقة للعملاء")
-        df_log = pd.DataFrame(all_customers)
-        if not df_log.empty:
-            df_log.columns = ["الرقم المعرف", "اسم العميل الرسمي", "رقم الهاتف", "المديونية المتبقية", "العملة", "فترة التذكير", "تاريخ آخر إرسال"]
-            st.dataframe(df_log[["اسم العميل الرسمي", "رقم الهاتف", "المديونية المتبقية", "العملة", "فترة التذكير", "تاريخ آخر إرسال"]], use_container_width=True, hide_index=True)
-            
-    else:
-        st.success("🎉 ممتاز جداً! لا يوجد عملاء مستحقين للتذكير حالياً.")
+                    if st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%;">💬 وات
