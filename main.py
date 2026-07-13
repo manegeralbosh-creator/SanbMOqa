@@ -68,4 +68,38 @@ def save_to_local_db(df):
         success_count = 0
         cursor = conn.cursor()
         
-        for idx, row in
+        for idx, row in df.iterrows():
+            raw_name = row[col_name]
+            if pd.isna(raw_name) or "اسم العميل" in str(raw_name) or "الاسم" in str(raw_name): continue
+            
+            clean_name = clean_customer_name(raw_name)
+            if not clean_name: continue
+            
+            phones = extract_all_yemeni_phones(raw_name)
+            
+            try: 
+                balance_str = str(row[col_balance]).replace(',', '').strip()
+                balance_val = int(float(balance_str))
+            except: balance_val = 0
+            
+            if balance_val > 0:
+                cursor.execute("SELECT id, phone_number FROM customers_debts WHERE customer_name = ?", (clean_name,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    existing_phone = existing[1]
+                    final_phone = existing_phone if existing_phone and existing_phone != "لا يوجد رقم" else (phones if phones else "لا يوجد رقم")
+                    cursor.execute("""
+                        UPDATE customers_debts 
+                        SET balance = ?, currency = ?, phone_number = ?
+                        WHERE customer_name = ?
+                    """, (balance_val, str(row[col_currency]).strip(), final_phone, clean_name))
+                else:
+                    cursor.execute("""
+                        INSERT INTO customers_debts (customer_name, phone_number, balance, currency, frequency) 
+                        VALUES (?, ?, ?, ?, 'أسبوعي')
+                    """, (clean_name, phones if phones else "لا يوجد رقم", balance_val, str(row[col_currency]).strip()))
+                success_count += 1
+                
+        conn.commit()
+        return True, f"✅ تم تحديث ومزامنة {success_count} عميل بنجاح في قاعدة البيانات
