@@ -48,10 +48,8 @@ conn = get_local_db()
 def extract_all_yemeni_phones(text):
     if pd.isna(text): return ""
     text_str = str(text).translate(str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
-    # البحث عن كل الأرقام المطابقة في السطر
     matches = re.findall(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text_str)
     if matches:
-        # حذف الأرقام المكررة إن وجدت وحفظ الترتيب
         unique_matches = list(dict.fromkeys(matches))
         return " / ".join(unique_matches)
     return ""
@@ -90,7 +88,6 @@ def save_to_local_db(df):
                 
                 if existing:
                     existing_phone = existing[1]
-                    # إذا كان هناك أرقام قديمة، نحتفظ بها، وإلا نضع الأرقام الجديدة المستخرجة
                     final_phone = existing_phone if existing_phone and existing_phone != "لا يوجد رقم" else (phones if phones else "لا يوجد رقم")
                     cursor.execute("""
                         UPDATE customers_debts 
@@ -177,7 +174,7 @@ with tab1:
         for item in due_customers:
             raw_phone = str(item["phone_number"]).strip()
             
-            # 🌟 معالجة الأرقام المتعددة: تقسيم النص إذا وجدنا علامة " / " لإنشاء قائمة منسدلة للعميل
+            # معالجة الأرقام المتعددة وتجهيز القائمة
             phone_list = [p.strip() for p in raw_phone.split('/') if p.strip()] if "/" in raw_phone else [raw_phone]
             if not phone_list or phone_list == ["لا يوجد رقم"]:
                 phone_list = ["لا يوجد رقم"]
@@ -189,7 +186,7 @@ with tab1:
             st.markdown(f"""
             <div class="client-card">
                 <span style="font-size:17px; font-weight:bold; color:#1E3A8A;">👤 {item['customer_name']}</span> | 
-                <span style="color:#4B5563;">📱 الهاتف الحالي: {raw_phone}</span> | 
+                <span style="color:#4B5563;">📱 الهاتف المسجل: {raw_phone}</span> | 
                 <span style="font-size:15px; font-weight:bold; color:#B91C1C;">💰 المتبقي: {item['balance']:,} {item['currency']}</span>
             </div>
             """, unsafe_allow_html=True)
@@ -204,23 +201,3 @@ with tab1:
                     st.rerun()
             
             with col_two:
-                # 🌟 إذا كان للعميل رقم واحد، تظهر خانة نصية عادية لتعديله. 
-                # وإذا كان لديه أكثر من رقم، تظهر "قائمة منسدلة" تختار منها الرقم المراد الإرسال إليه حالياً!
-                if len(phone_list) > 1:
-                    selected_phone = st.selectbox(f"تحديد الرقم الكلي", phone_list, key=f"select_p_{item['id']}", label_visibility="collapsed")
-                    phone_to_send = selected_phone.lstrip('0')
-                else:
-                    new_phone = st.text_input(f"phone_{item['id']}", value="" if phone_list[0] == "لا يوجد رقم" else phone_list[0], placeholder="رقم الهاتف (أو رقمين مفصولين بـ /)", key=f"input_{item['id']}", label_visibility="collapsed")
-                    if new_phone.strip() != "" and new_phone.strip() != raw_phone:
-                        # تنظيف وحفظ التعديل الجديد (سواء رقم أو رقمين مفصولين)
-                        cursor.execute("UPDATE customers_debts SET phone_number = ? WHERE id = ?", (new_phone.strip(), item["id"]))
-                        conn.commit()
-                        st.rerun()
-                    phone_to_send = new_phone.strip().lstrip('0') if new_phone.strip() != "" else ""
-
-            with col_three:
-                if phone_to_send and phone_to_send != "لا يوجد رقم":
-                    whatsapp_phone = "967" + phone_to_send if not phone_to_send.startswith("967") else phone_to_send
-                    whatsapp_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={encoded_msg}"
-                    
-                    if st.markdown(f'<a href="{whatsapp_url}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 13px; cursor: pointer; font-weight: bold; width: 100%;">💬 وات
