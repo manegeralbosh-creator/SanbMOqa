@@ -355,19 +355,18 @@ with tab1:
                 else: 
                     st.button("🚫 ناقص", key=f"sms_err_{first_db_id}", disabled=True, use_container_width=True)
 
-            # 🎤 ميكروفون المتابعة الصوتية الذكي والآمن (الرسمي والمدعوم من الهواتف)
+            # 🎤 ميكروفون المتابعة الصوتية السلس (بدون تعليق أو أزرار حفظ يدوية)
             with st.expander("🎤 ميكروفون مقاضاة العميل بالصوت (سجل وأرسل)"):
                 st.markdown(f"**تسجيل رسالة مخصصة لـ: {item['customer_name']}**")
                 
-                # الميكروفون الرسمي من Streamlit الذي يمنع الاختفاء في الهواتف
-                audio_file = st.audio_input("اضغط على زر الميكروفون للبدء والتسجيل:", key=f"native_voice_{first_db_id}")
+                # ربط الميكروفون بـ key فريد ومستقر تماماً لمنع إعادة تحميل الصفحة اللانهائية
+                audio_file = st.audio_input("اضغط على زر الميكروفون للبدء والتسجيل:", key=f"direct_voice_{first_db_id}")
                 
+                # بمجرد انتهاء الرفع التلقائي للصوت يظهر الزر مباشرة للعميل بدون أي تدخل يدوي
                 if audio_file is not None:
-                    st.success("✅ تم تسجيل المقطع الصوتي وحفظه بنجاح على الهاتف!")
-                    
-                    # زر الانتقال الفوري للواتساب بعد التسجيل
                     st.markdown(f"""
-                        <div style="text-align: center; margin-top: 10px;">
+                        <div style="text-align: center; margin-top: 15px;">
+                            <p style="color: #25D366; font-weight: bold; font-size: 15px; margin-bottom: 5px;">✅ تم تسجيل وحفظ المقطع الصوتي بنجاح!</p>
                             <a href="{whatsapp_voice_url}" target="_blank">
                                 <button style="
                                     background-color: #25D366; 
@@ -381,7 +380,7 @@ with tab1:
                                     width: 100%;
                                     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                                 ">
-                                    📲 افتح الواتساب الآن وأرفق الصوت 
+                                    📲 افتح الواتساب الآن لارفاق البصمة الصوتية للعميل
                                 </button>
                             </a>
                         </div>
