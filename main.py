@@ -20,6 +20,7 @@ st.markdown("""
     div[data-testid="stBlock"] { padding: 4px; }
     .client-card { background-color: #ffffff; padding: 12px; border-radius: 6px; border-right: 6px solid #1E3A8A; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .bulk-box { background-color: #EFF6FF; padding: 15px; border-radius: 8px; border: 1px solid #BFDBFE; margin-bottom: 15px; text-align: center; }
+    .active-mic-box { background-color: #FFFBEB; padding: 15px; border-radius: 8px; border: 1px solid #F59E0B; margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -249,7 +250,51 @@ with tab2:
 
 # 📊 التبويب الأول: فرز ومتابعة المستحقين الفردي
 with tab1:
-    with st.expander("📝 إعدادات وتخصيص نص رسالة التذكير العامة"):
+    # --- 🎙️ الميكروفون الموحد والنشط في أعلى التبويب ---
+    if "active_voice_client" in st.session_state and st.session_state["active_voice_client"] is not None:
+        active_client = st.session_state["active_voice_client"]
+        
+        st.markdown(f"""
+        <div class="active-mic-box">
+            <h4 style="color: #B45309; margin: 0 0 10px 0;">🎙️ مسجل الصوت الموحد للعميل: {active_client['name']}</h4>
+            <p style="font-size: 14px; color: #78350F; margin: 0 0 10px 0;">اضغط على زر الميكروفون أدناه، سجل رسالتك، ثم أوقف التسجيل ليظهر زر الإرسال مباشرة دون تعليق.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # ميكروفون واحد فريد ونشط على الصفحة كاملة
+        audio_file = st.audio_input("ابدأ تسجيل الصوت هنا:", key="global_unique_audio_recorder")
+        
+        col_rec_1, col_rec_2 = st.columns([3, 1])
+        with col_rec_1:
+            if audio_file is not None:
+                st.success("✅ تم معالجة وحفظ المقطع الصوتي بنجاح على الهاتف!")
+                st.markdown(f"""
+                    <div style="margin-top: 5px;">
+                        <a href="{active_client['whatsapp_url']}" target="_blank">
+                            <button style="
+                                background-color: #25D366; 
+                                color: white; 
+                                border: none; 
+                                padding: 12px 20px; 
+                                border-radius: 6px; 
+                                font-size: 15px; 
+                                font-weight: bold; 
+                                cursor: pointer; 
+                                width: 100%;
+                            ">
+                                📲 افتح الواتساب الآن لارفاق الصوت المرسل لـ {active_client['name']}
+                            </button>
+                        </a>
+                    </div>
+                """, unsafe_allow_html=True)
+        with col_rec_2:
+            if st.button("❌ إغلاق المسجل", use_container_width=True, type="secondary"):
+                st.session_state["active_voice_client"] = None
+                st.rerun()
+                
+        st.write("---")
+
+    with St_expander := st.expander("📝 إعدادات وتخصيص نص رسالة التذكير العامة"):
         default_msg = "تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: [المبلغ] [العملة].\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
         custom_msg_template = st.text_area("صيغة الرسالة:", value=default_msg, height=120)
 
@@ -355,36 +400,14 @@ with tab1:
                 else: 
                     st.button("🚫 ناقص", key=f"sms_err_{first_db_id}", disabled=True, use_container_width=True)
 
-            # 🎤 ميكروفون المتابعة الصوتية السلس (بدون تعليق أو أزرار حفظ يدوية)
-            with st.expander("🎤 ميكروفون مقاضاة العميل بالصوت (سجل وأرسل)"):
-                st.markdown(f"**تسجيل رسالة مخصصة لـ: {item['customer_name']}**")
-                
-                # ربط الميكروفون بـ key فريد ومستقر تماماً لمنع إعادة تحميل الصفحة اللانهائية
-                audio_file = st.audio_input("اضغط على زر الميكروفون للبدء والتسجيل:", key=f"direct_voice_{first_db_id}")
-                
-                # بمجرد انتهاء الرفع التلقائي للصوت يظهر الزر مباشرة للعميل بدون أي تدخل يدوي
-                if audio_file is not None:
-                    st.markdown(f"""
-                        <div style="text-align: center; margin-top: 15px;">
-                            <p style="color: #25D366; font-weight: bold; font-size: 15px; margin-bottom: 5px;">✅ تم تسجيل وحفظ المقطع الصوتي بنجاح!</p>
-                            <a href="{whatsapp_voice_url}" target="_blank">
-                                <button style="
-                                    background-color: #25D366; 
-                                    color: white; 
-                                    border: none; 
-                                    padding: 12px 20px; 
-                                    border-radius: 8px; 
-                                    font-size: 16px; 
-                                    font-weight: bold; 
-                                    cursor: pointer; 
-                                    width: 100%;
-                                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                                ">
-                                    📲 افتح الواتساب الآن لارفاق البصمة الصوتية للعميل
-                                </button>
-                            </a>
-                        </div>
-                    """, unsafe_allow_html=True)
+            # زر تشغيل الميكروفون الموحد لهذا العميل بالتحديد
+            if phone_to_send and phone_to_send != "لا يوجد رقم":
+                if st.button(f"🎙️ تجهيز وتفعيل ميكروفون العميل: {item['customer_name']}", key=f"trigger_mic_{first_db_id}", use_container_width=True):
+                    st.session_state["active_voice_client"] = {
+                        "name": item['customer_name'],
+                        "whatsapp_url": whatsapp_voice_url
+                    }
+                    st.rerun()
             
             st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
             
