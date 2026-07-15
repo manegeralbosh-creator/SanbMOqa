@@ -5,6 +5,7 @@ import urllib.parse
 import io
 import sqlite3
 from datetime import datetime
+import streamlit.components.v1 as components
 
 # 1. إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام محلات البوش للحسابات", page_icon="📊", layout="wide")
@@ -107,7 +108,6 @@ def save_to_local_db(df):
                         WHERE customer_name = ? AND currency = ?
                     """, (balance_val, final_phone, clean_name, currency_val))
                 else:
-                    # جلب رقم هاتف مسجل مسبقاً لنفس العميل لتوحيد أرقامه
                     cursor.execute("SELECT phone_number FROM customers_debts WHERE customer_name = ? AND phone_number != 'لا يوجد رقم'", (clean_name,))
                     saved_phone = cursor.fetchone()
                     final_phone = saved_phone[0] if saved_phone else (phones if phones else "لا يوجد رقم")
@@ -148,11 +148,9 @@ for r in rows:
     grouped_dict[name]["ids"].append(db_id)
     grouped_dict[name]["debts"][currency] = balance
     
-    # تفضيل الاحتفاظ بالرقم الصالح إذا وُجد
     if phone and phone != "لا يوجد رقم":
         grouped_dict[name]["phone_number"] = phone
         
-    # تحديث تاريخ آخر إرسال إذا كان الأحدث
     if last_sent:
         if not grouped_dict[name]["last_sent_date"] or last_sent > grouped_dict[name]["last_sent_date"]:
             grouped_dict[name]["last_sent_date"] = last_sent
@@ -173,7 +171,6 @@ if all_customers:
         else: 
             due_customers.append(cust)
 
-# 🔔 هنا تم إصلاح المشكلة وتجهيز التبويبات الثلاثة للعمل
 tab1, tab2, tab3 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "🚀 الإرسال الجماعي (SMS)", "📥 رفع وتحديث كشف الحساب"])
 
 # 🚀 التبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
@@ -207,13 +204,11 @@ with tab2:
             
             default_msg = "تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: [المبلغ] [العملة].\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
             
-            # صياغة المديونية المدمجة
             debt_parts = []
             for curr, bal in current_cust["debts"].items():
                 debt_parts.append(f"{bal:,} {curr}")
             combined_debt_str = " و ".join(debt_parts)
             
-            # تعديل حقول الاستبدال لدعم العملة المدمجة
             bulk_formatted_msg = default_msg.replace("هو: [المبلغ] [العملة].", f"هو: {combined_debt_str}.")
             bulk_encoded_msg = urllib.parse.quote(bulk_formatted_msg)
             
@@ -270,7 +265,6 @@ with tab1:
             if not phone_list or phone_list == ["لا يوجد رقم"]:
                 phone_list = ["لا يوجد رقم"]
 
-            # بناء وتجميع المديونيات لإنتاج رسالة منسقة
             debt_items = []
             display_parts = []
             for curr, bal in item["debts"].items():
@@ -281,9 +275,7 @@ with tab1:
             combined_debt_str = " و ".join(debt_items)
             combined_display_str = " و ".join(display_parts)
             
-            # معالجة استبدال العملة الواحدة أو العملات المدمجة
             formatted_msg = custom_msg_template.replace("هو: [المبلغ] [العملة].", f"هو: {combined_debt_str}.")
-            # تأمين الاستبدال الكلاسيكي في حال لم يتم صياغة الرسالة الافتراضية بنفس النمط
             formatted_msg = formatted_msg.replace("[المبلغ]", combined_debt_str).replace("[العملة]", "")
             
             encoded_msg = urllib.parse.quote(formatted_msg)
@@ -299,7 +291,6 @@ with tab1:
             col_one, col_two, col_three, col_four = st.columns([1.2, 1.6, 1.1, 1.1])
             
             with col_one:
-                # نربط التحكم في الفترات بالـ ID الأول للعميل في السيرفر
                 first_db_id = item["ids"][0]
                 idx_default = frequency_options.index(item["frequency"]) if item["frequency"] in frequency_options else 1
                 chosen_freq = st.selectbox(f"freq_{first_db_id}", frequency_options, index=idx_default, key=f"time_{first_db_id}", label_visibility="collapsed")
@@ -355,13 +346,81 @@ with tab1:
                         st.rerun()
                 else: 
                     st.button("🚫 ناقص", key=f"sms_err_{first_db_id}", disabled=True, use_container_width=True)
+
+            # 🎤 إضافة ميكروفون التسجيل الصوتي المباشر لكل عميل
+            with st.expander("🎤 ميكروفون مقاضاة العميل بالصوت (سجل وأرسل)"):
+                st.markdown(f"**تسجيل رسالة مخصصة لـ: {item['customer_name']}**")
+                
+                # كود HTML5 & JS مدمج يسجل الصوت ويقوم بتحميله تلقائياً بصيغة mp3/wav
+                recorder_html = f"""
+                <div style="text-align: center; padding: 10px; background-color: #F3F4F6; border-radius: 8px;">
+                    <button id="startBtn" style="background-color: #DC2626; color: white; padding: 8px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; margin-right: 10px;">🎤 ابدأ التسجيل</button>
+                    <button id="stopBtn" style="background-color: #1E3A8A; color: white; padding: 8px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;" disabled>⏹️ إيقاف وتحميل الصوت</button>
+                    <div id="status" style="margin-top: 10px; font-size: 13px; color: #4B5563;">جاهز للتسجيل...</div>
+                    <audio id="audioPlayback" controls style="margin-top: 10px; width: 100%; display: none;"></audio>
+                </div>
+
+                <script>
+                    let mediaRecorder;
+                    let audioChunks = [];
+                    const startBtn = document.getElementById('startBtn');
+                    const stopBtn = document.getElementById('stopBtn');
+                    const status = document.getElementById('status');
+                    const audioPlayback = document.getElementById('audioPlayback');
+
+                    startBtn.onclick = async () => {{
+                        navigator.mediaDevices.getUserMedia({{ audio: true }})
+                            .then(stream => {{
+                                mediaRecorder = new MediaRecorder(stream);
+                                mediaRecorder.start();
+                                audioChunks = [];
+                                
+                                startBtn.disabled = true;
+                                stopBtn.disabled = false;
+                                status.innerHTML = "🔴 جاري التسجيل الآن... تحدث بصوتك";
+                                status.style.color = "#DC2626";
+
+                                mediaRecorder.ondataavailable = event => {{
+                                    audioChunks.push(event.data);
+                                }};
+
+                                mediaRecorder.onstop = () => {{
+                                    const audioBlob = new Blob(audioChunks, {{ type: 'audio/mp3' }});
+                                    const audioUrl = URL.createObjectURL(audioBlob);
+                                    audioPlayback.src = audioUrl;
+                                    audioPlayback.style.display = 'block';
+
+                                    // تحميل تلقائي للهاتف أو الكمبيوتر لكي يرفقها مباشرة في الواتساب
+                                    const link = document.createElement('a');
+                                    link.href = audioUrl;
+                                    link.download = "رسالة_صوتية_{item['customer_name']}.mp3";
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+
+                                    status.innerHTML = "✅ تم حفظ المقطع بنجاح! افتح الواتساب وارفق الملف المالي المحمل.";
+                                    status.style.color = "#10B981";
+                                    startBtn.disabled = false;
+                                    stopBtn.disabled = true;
+                                }};
+                            }}).catch(e => {{
+                                status.innerHTML = "⚠️ خطأ: لم يتم إعطاء صلاحية استخدام الميكروفون.";
+                                status.style.color = "#DC2626";
+                            }});
+                    }};
+
+                    stopBtn.onclick = () => {{
+                        mediaRecorder.stop();
+                    }};
+                </script>
+                """
+                components.html(recorder_html, height=140)
             
             st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
             
         st.write("---")
         st.write("### 📜 السجل الكامل وتواريخ المراسلة السابقة للعملاء")
         
-        # تحضير السجل للعرض بحيث تظهر مديونيات العملات مجتمعة بشكل أنيق
         log_rows = []
         for cust in all_customers:
             yemeni_bal = cust["debts"].get("يمني", 0)
