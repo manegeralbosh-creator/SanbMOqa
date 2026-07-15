@@ -171,7 +171,7 @@ if all_customers:
         else: 
             due_customers.append(cust)
 
-# تعريف التبويبات في البداية لتفادي أي مشاكل برمجية
+# تعريف التبويبات
 tab1, tab2, tab3 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "🚀 الإرسال الجماعي (SMS)", "📥 رفع وتحديث كشف الحساب"])
 
 # 🚀 التبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
@@ -317,13 +317,12 @@ with tab1:
                         st.rerun()
                     phone_to_send = new_phone.strip().lstrip('0') if new_phone.strip() != "" else ""
 
-            # سنقوم بحساب رابط الواتساب مسبقاً لإرساله إلى الميكروفون
+            # حساب رابط الواتساب والعملية الأمنة لإرسال الصوت
             whatsapp_phone = ""
             if phone_to_send and phone_to_send != "لا يوجد رقم":
                 whatsapp_phone = "967" + phone_to_send if not phone_to_send.startswith("967") else phone_to_send
             
-            # رسالة مخصصة لارفاق الصوت
-            voice_note_intro = urllib.parse.quote("أرفق لكم البصمة الصوتية الخاصة بالحساب:")
+            voice_note_intro = urllib.parse.quote("أرفق لكم المقطع الصوتي الخاص بمتابعة الحساب:")
             whatsapp_voice_url = f"https://api.whatsapp.com/send?phone={whatsapp_phone}&text={voice_note_intro}"
 
             with col_three:
@@ -356,80 +355,37 @@ with tab1:
                 else: 
                     st.button("🚫 ناقص", key=f"sms_err_{first_db_id}", disabled=True, use_container_width=True)
 
-            # 🎤 ميكروفون المتابعة الصوتية الذكي (تحميل تلقائي + فتح الواتساب تلقائياً)
+            # 🎤 ميكروفون المتابعة الصوتية الذكي والآمن (الرسمي والمدعوم من الهواتف)
             with st.expander("🎤 ميكروفون مقاضاة العميل بالصوت (سجل وأرسل)"):
                 st.markdown(f"**تسجيل رسالة مخصصة لـ: {item['customer_name']}**")
                 
-                recorder_html = f"""
-                <div style="text-align: center; padding: 10px; background-color: #F3F4F6; border-radius: 8px;">
-                    <button id="startBtn" style="background-color: #DC2626; color: white; padding: 8px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; margin-right: 10px;">🎤 ابدأ التسجيل</button>
-                    <button id="stopBtn" style="background-color: #1E3A8A; color: white; padding: 8px 15px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;" disabled>⏹️ إيقاف وإرسال للواتساب</button>
-                    <div id="status" style="margin-top: 10px; font-size: 13px; color: #4B5563;">جاهز للتسجيل...</div>
-                    <audio id="audioPlayback" controls style="margin-top: 10px; width: 100%; display: none;"></audio>
-                </div>
-
-                <script>
-                    let mediaRecorder;
-                    let audioChunks = [];
-                    const startBtn = document.getElementById('startBtn');
-                    const stopBtn = document.getElementById('stopBtn');
-                    const status = document.getElementById('status');
-                    const audioPlayback = document.getElementById('audioPlayback');
-
-                    startBtn.onclick = async () => {{
-                        navigator.mediaDevices.getUserMedia({{ audio: true }})
-                            .then(stream => {{
-                                mediaRecorder = new MediaRecorder(stream);
-                                mediaRecorder.start();
-                                audioChunks = [];
-                                
-                                startBtn.disabled = true;
-                                stopBtn.disabled = false;
-                                status.innerHTML = "🔴 جاري التسجيل الآن... تحدث بصوتك";
-                                status.style.color = "#DC2626";
-
-                                mediaRecorder.ondataavailable = event => {{
-                                    audioChunks.push(event.data);
-                                }};
-
-                                mediaRecorder.onstop = () => {{
-                                    const audioBlob = new Blob(audioChunks, {{ type: 'audio/mp3' }});
-                                    const audioUrl = URL.createObjectURL(audioBlob);
-                                    audioPlayback.src = audioUrl;
-                                    audioPlayback.style.display = 'block';
-
-                                    // 1. تحميل الملف الصوتي تلقائياً
-                                    const link = document.createElement('a');
-                                    link.href = audioUrl;
-                                    link.download = "بصمة_صوت_{item['customer_name']}.mp3";
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    document.body.removeChild(link);
-
-                                    status.innerHTML = "🔄 جاري تحميل الملف والانتقال إلى واتساب...";
-                                    status.style.color = "#1E3A8A";
-
-                                    // 2. الانتقال المباشر إلى دردشة الواتساب بعد ثانية واحدة (للسماح بالتحميل أولاً)
-                                    setTimeout(() => {{
-                                        window.open("{whatsapp_voice_url}", "_blank");
-                                        status.innerHTML = "✅ تم! أرفق الآن الملف الصوتي الأخير داخل المحادثة المفتوحة.";
-                                        status.style.color = "#10B981";
-                                        startBtn.disabled = false;
-                                        stopBtn.disabled = true;
-                                    }}, 1200);
-                                }};
-                            }}).catch(e => {{
-                                status.innerHTML = "⚠️ خطأ: لم يتم إعطاء صلاحية استخدام الميكروفون.";
-                                status.style.color = "#DC2626";
-                            }});
-                    }};
-
-                    stopBtn.onclick = () => {{
-                        mediaRecorder.stop();
-                    }};
-                </script>
-                """
-                components.html(recorder_html, height=140)
+                # الميكروفون الرسمي من Streamlit الذي يمنع الاختفاء في الهواتف
+                audio_file = st.audio_input("اضغط على زر الميكروفون للبدء والتسجيل:", key=f"native_voice_{first_db_id}")
+                
+                if audio_file is not None:
+                    st.success("✅ تم تسجيل المقطع الصوتي وحفظه بنجاح على الهاتف!")
+                    
+                    # زر الانتقال الفوري للواتساب بعد التسجيل
+                    st.markdown(f"""
+                        <div style="text-align: center; margin-top: 10px;">
+                            <a href="{whatsapp_voice_url}" target="_blank">
+                                <button style="
+                                    background-color: #25D366; 
+                                    color: white; 
+                                    border: none; 
+                                    padding: 12px 20px; 
+                                    border-radius: 8px; 
+                                    font-size: 16px; 
+                                    font-weight: bold; 
+                                    cursor: pointer; 
+                                    width: 100%;
+                                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                                ">
+                                    📲 افتح الواتساب الآن وأرفق الصوت 
+                                </button>
+                            </a>
+                        </div>
+                    """, unsafe_allow_html=True)
             
             st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
             
