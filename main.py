@@ -38,7 +38,7 @@ st.markdown("""
         color: white;
     }
     </style>
-""", unsafe_index=True)
+""", unsafe_allow_html=True)
 
 st.write('<h1 class="main-title">📊 نظام محلات البوش لخدمات الحسابات المتكامل</h1>', unsafe_allow_html=True)
 st.write('<p class="sub-title">إدارة مديونيات السوق الرسمية - معالجة الحسابات وإرسال الإشعارات المدمجة</p>', unsafe_allow_html=True)
@@ -143,7 +143,7 @@ if uploaded_file is not None:
 
             with tab2:
                 st.subheader("💬 قائمة الرسائل الجاهزة للإرسال")
-                st.caption("اضغط على زر 'إرسال عبر واتساب' لفتح المحادثة بالنص المدمج تلقائياً")
+                st.caption("اضغط على رابط الواتساب لفتح المحادثة بالنص المدمج تلقائياً")
                 
                 # عرض كروت إرسال مخصصة لكل عميل بوضوح وسلاسة
                 for idx, row in final_df.iterrows():
