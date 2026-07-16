@@ -461,3 +461,34 @@ with tab3:
                 st.rerun()
             else: 
                 st.error("حدث خطأ أثناء الحفظ محلياً: " + result_msg)
+                # --- جسر الربط مع الترمكس للمقاضاة التلقائية ---
+import json
+
+# دالة لتحويل بيانات SQLite إلى صيغة نصية يقرأها الترمكس
+def export_debts_to_json():
+    try:
+        conn = sqlite3.connect("local_debts.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT customer_name, phone_number, balance, currency, frequency, last_sent_date FROM customers_debts")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        data = []
+        for row in rows:
+            data.append({
+                "name": row[0],
+                "phone": row[1],
+                "balance": row[2],
+                "currency": row[3],
+                "frequency": row[4],
+                "last_sent": row[5]
+            })
+        return json.dumps(data, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+# عرض البيانات في صفحة خفية للربط
+if st.experimental_get_query_params().get("api") == ["get_debts"]:
+    st.text(export_debts_to_json())
+    st.stop()
+
