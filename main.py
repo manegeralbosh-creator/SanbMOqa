@@ -462,9 +462,9 @@ with tab3:
             else: 
                 st.error("حدث خطأ أثناء الحفظ محلياً: " + result_msg)
                 # --- جسر الربط مع الترمكس للمقاضاة التلقائية ---
+# --- جسر الربط مع الترمكس للمقاضاة التلقائية ---
 import json
 
-# دالة لتحويل بيانات SQLite إلى صيغة نصية يقرأها الترمكس
 def export_debts_to_json():
     try:
         conn = sqlite3.connect("local_debts.db")
@@ -487,8 +487,7 @@ def export_debts_to_json():
     except Exception as e:
         return json.dumps({"error": str(e)})
 
-# عرض البيانات في صفحة خفية للربط
-if st.experimental_get_query_params().get("api") == ["get_debts"]:
+# التحديث الجديد المتوافق مع السيرفر السحابي
+if "api" in st.query_params and st.query_params["api"] == "get_debts":
     st.text(export_debts_to_json())
     st.stop()
-
