@@ -96,6 +96,28 @@ import sqlite3
 from datetime import datetime
 import streamlit.components.v1 as components
 
+import os
+from pathlib import Path
+
+def get_persistent_db_path():
+    # هذا المسار يحدد مجلد باسم AlBoush_Data في ذاكرة الهاتف الداخلية
+    # يمكنك تغييره لأي اسم مجلد تفضله
+    storage_dir = Path("/sdcard/AlBoush_Data") 
+    
+    # التأكد من وجود المجلد، إذا لم يكن موجوداً سيتم إنشاؤه
+    if not storage_dir.exists():
+        storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    # مسار قاعدة البيانات الثابت
+    return str(storage_dir / "local_debts.db")
+
+# استخدم هذا المسار في دالة الاتصال:
+def get_db_connection():
+    db_path = get_persistent_db_path()
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    # ... (باقي كود إنشاء الجدول) ...
+    return conn
+    
 # 1. إعدادات الصفحة الأساسية
 st.set_page_config(page_title="نظام محلات البوش للحسابات", page_icon="📊", layout="wide")
 
