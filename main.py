@@ -1,4 +1,4 @@
-importport streamlit as st
+import streastas st
 import pandas as pd
 import re
 import urllib.parse
