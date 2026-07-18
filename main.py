@@ -72,6 +72,18 @@ def get_local_db():
 
 conn = get_local_db()
 
+# كود يقوم بحفظ بيانات المديونيات في ملف CSV
+def save_data(data):
+    df = pd.DataFrame(data)
+    df.to_csv("al_boush_debts.csv", index=False)
+    st.success("تم حفظ البيانات بنجاح في السحابة!")
+
+# زر لإرسال البيانات للعمليات
+if st.button("تحديث السحابة"):
+    # هنا تضع المنطق الخاص بك
+    save_data(your_data_list)
+
+
 # 4. دالات معالجة النصوص وتصفية الأرقام والأسماء
 def extract_all_yemeni_phones(text):
     if pd.isna(text): 
