@@ -4,3 +4,4 @@ openpyxl
 xlrd
 supabase
 streamlit-calendar
+gspread
