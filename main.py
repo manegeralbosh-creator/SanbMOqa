@@ -11,6 +11,32 @@ import os
 from pathlib import Path
 import streamlit as st
 from streamlit_calendar import calendar
+import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
+
+# 1. إعداد صلاحيات الاتصال باستخدام المفاتيح التي حفظناها في الـ Secrets
+def get_data_from_sheet():
+    # هذا السطر يسحب المفاتيح من الـ Secrets تلقائياً
+    creds_dict = st.secrets["gcp_service_account"]
+    
+    # تحويل البيانات إلى تنسيق يفهمه جوجل
+    creds = Credentials.from_service_account_info(creds_dict)
+    client = gspread.authorize(creds)
+    
+    # فتح ملف الجدول باسمه (تأكد أن الاسم مطابق لاسم ملفك في جوجل درايف)
+    sheet = client.open("AlBoush_Data").sheet1
+    
+    # جلب كل البيانات
+    return sheet.get_all_records()
+
+# 2. استدعاء الدالة لعرض البيانات
+try:
+    data = get_data_from_sheet()
+    st.write("تم الاتصال بجدول المديونيات بنجاح!")
+    st.table(data) # عرض البيانات على شكل جدول
+except Exception as e:
+    st.error(f"حدث خطأ في الاتصال: {e}")
 
 def get_persistent_db_path():
     # هذا المسار يحدد مجلد باسم AlBoush_Data في ذاكرة الهاتف الداخلية
