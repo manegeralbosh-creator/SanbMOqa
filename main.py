@@ -388,7 +388,7 @@ with tab1:
             formatted_msg = custom_msg_template.replace("هو: [المبلغ] [العملة].", f"هو: {combined_debt_str}.")
             formatted_msg = formatted_msg.replace("[المبلغ]", combined_debt_str).replace("[العملة]", "")
             
-            encoded_msg = urllib.parse.quote(formatted_msg)
+            encoded_mالكودrllib.parse.quote(formatted_msg)
             
             st.markdown(f"""
             <div class="client-card">
@@ -579,5 +579,39 @@ with tab3:
 # التحديث الجديد المتوافق مع السيرفر السحابي
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
     st.text(export_debts_to_json())
-    st.stop()
-# نهاية الكود
+    st.stop() 
+    with st.expander("✂️ قسم ملفات الفواتير المجمعة (PDF Splitter)"):
+    uploaded_pdf = st.file_uploader("ارفع ملف الـ PDF المجمع للفواتير:", type=["pdf"])
+    
+    if uploaded_pdf:
+        if st.button("بدء التقسيم الذكي"):
+            pdf_path = "temp_invoice.pdf"
+            with open(pdf_path, "wb") as f:
+                f.write(uploaded_pdf.getbuffer())
+            
+            doc = fitz.open(pdf_path)
+            st.write(f"تم اكتشاف {len(doc)} فاتورة في الملف.")
+            
+            # مجلد لحفظ الفواتير المقسمة
+            output_dir = "split_invoices"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            for i, page in enumerate(doc):
+                text = page.get_text()
+                # ابحث عن اسم العميل أو رقمه في نص الصفحة
+                # هنا يجب مطابقة النمط الموجود في فواتيرك (مثلاً: رقم العميل 77XXXXXXX)
+                match = re.search(r'(77\d{7}|73\d{7}|71\d{7}|70\d{7})', text)
+                cust_id = match.group(0) if match else f"فاتورة_{i+1}"
+                
+                # حفظ الصفحة كملف منفصل
+                new_doc = fitz.open()
+                new_doc.insert_pdf(doc, from_page=i, to_page=i)
+                file_name = f"{output_dir}/{cust_id}.pdf"
+                new_doc.save(file_name)
+                
+                # عرض رابط للتحميل
+                with open(file_name, "rb") as f:
+                    st.download_button(f"📥 تحميل فاتورة: {cust_id}", f, file_name=f"{cust_id}.pdf")
+            
+            st.success("تم تقسيم الملف بنجاح!")
+# نهاية االكود
