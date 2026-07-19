@@ -580,10 +580,11 @@ with tab3:
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
     st.text(export_debts_to_json())
     st.stop() 
-    with st.expander("✂️ قسم ملفات الفواتير المجمعة (PDF Splitter)"):
-    uploaded_pdf = st.file_uploader("ارفع ملف الـ PDF المجمع للفواتير:", type=["pdf"])
     
-    if uploaded_pdf:
+    with st.expander("✂️ قسم ملفات الفواتير المجمعة (PDF Splitter)"):
+       uploaded_pdf = st.file_uploader("ارفع ملف الـ PDF المجمع للفواتير:", type=["pdf"])
+    
+       if uploaded_pdf:
         if st.button("بدء التقسيم الذكي"):
             pdf_path = "temp_invoice.pdf"
             with open(pdf_path, "wb") as f:
