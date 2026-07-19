@@ -548,6 +548,32 @@ def export_debts_to_json():
         return json.dumps(data, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
+def extract_from_pdf(pdf_file):
+    with pdfplumber.open(pdf_file) as pdf:
+        first_page = pdf.pages[0]
+        text = first_page.extract_text()
+        
+        # هنا تستخدم التعبيرات النمطية (Regex) لاستخراج البيانات
+        # مثال: إذا كان اسم العميل يأتي بعد كلمة "اسم العميل:"
+        name_match = re.search(r"اسم العميل:\s*(.*)", text)
+        balance_match = re.search(r"المبلغ:\s*([\d,]+)", text)
+        
+        customer_name = name_match.group(1) if name_match else "غير معروف"
+        balance = balance_match.group(1).replace(',', '') if balance_match else 0
+        
+        return customer_name, int(balance)
+
+# داخل تبويب رفع الملفات:
+with tab3:
+    uploaded_pdf = st.file_uploader("رفع فاتورة PDF", type=["pdf"])
+    if uploaded_pdf:
+        name, bal = extract_from_pdf(uploaded_pdf)
+        st.write(f"تم استخراج: {name} بمبلغ {bal}")
+        
+        # يمكنك هنا إضافة زر "حفظ إلى النظام"
+        if st.button("حفظ هذه الفاتورة إلى المديونيات"):
+            # كود إضافة للـ SQL هنا
+            st.success("تم الحفظ!")
 
 # التحديث الجديد المتوافق مع السيرفر السحابي
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
