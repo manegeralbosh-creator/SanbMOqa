@@ -6,3 +6,5 @@ supabase
 streamlit-calendar
 gspread
 pdfplumber
+pymupdf
+google-auth
