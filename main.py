@@ -14,7 +14,8 @@ from streamlit_calendar import calendar
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-
+import fitz  # مكتبة PyMuPDF
+import os
 # 1. إعداد صلاحيات الاتصال باستخدام المفاتيح التي حفظناها في الـ Secrets
 def get_data_from_sheet():
     # هذا السطر يسحب المفاتيح من الـ Secrets تلقائياً
