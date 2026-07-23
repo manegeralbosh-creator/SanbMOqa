@@ -491,7 +491,8 @@ with tab1:
                 "مديونية يمني": f"{yemeni_bal:,}" if yemeni_bal > 0 else "0",
                 "مديونية سعودي": f"{saudi_bal:,}" if saudi_bal > 0 else "0",
                 "فترة التذكير": cust["frequency"],
-                "تاريخ آخر إرسال": cust["last_sent_date"] if cust["last_sent_date"] elifل بعد"
+                "تاريخ آخر إرسال": cust["last_sent_date"] if cust["last_sent_date"] else "لم يرسل بعد"
+
             })
             
         df_log = pd.DataFrame(log_rows)
