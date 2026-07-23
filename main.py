@@ -235,7 +235,7 @@ if all_customers:
             due_customers.append(cust)
 
 # تعريف التبويبات
-tab1, tab2, tab3 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "🚀 الإرسال الجماعي (SMS)", "📥 رفع وتحديث كشف الحساب"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 العملاء المستحقين للتذكير اليوم", "📲 إرسال فواتير الواتساب"  # <-- أضفنا التبويب", "🚀 الإرسال الجماعي (SMS)", "📥 رفع وتحديث كشف الحساب"])
 
 # 🚀 التبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
 with tab2:
@@ -548,6 +548,139 @@ def export_debts_to_json():
         return json.dumps(data, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
+التبويب الرابع
+with tab4:
+    st.header("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
+    
+    # 1. قسم رفع الملفات الخاص بالفواتير
+    col_ex, col_pdf = st.columns(2)
+    with col_ex:
+        excel_file = st.file_uploader("رفع ملف كشف المبيعات (Excel)", type=["xlsx", "xls"], key="inv_excel")
+    with col_pdf:
+        pdf_files = st.file_uploader("رفع ملفات الفواتير (PDF دفعة واحدة)", type=["pdf"], accept_multiple_files=True, key="inv_pdfs")
+
+    if excel_file:
+        df = pd.read_excel(excel_file)
+        pdf_dict = {os.path.basename(f.name).strip(): f for f in pdf_files} if pdf_files else {}
+
+        # تصفية العملات
+        currencies = ["الكل"] + df['curr'].dropna().unique().tolist()
+        selected_curr = st.selectbox("اختر العملة للتصفية:", currencies, key="curr_select")
+        
+        filtered_df = df.copy()
+        if selected_curr != "الكل":
+            filtered_df = filtered_df[filtered_df['curr'] == selected_curr]
+
+        filtered_df['doc_ser_str'] = filtered_df['doc_ser'].astype(str).str.strip()
+        
+        # استبعاد المعالج
+        processed_set = st.session_state.completed_invoices.union(st.session_state.skipped_invoices)
+        pending_df = filtered_df[~filtered_df['doc_ser_str'].isin(processed_set)]
+        
+        total_invoices = len(filtered_df)
+        completed_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.completed_invoices)])
+        skipped_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.skipped_invoices)])
+        remaining_invoices = len(pending_df)
+        
+        # مؤشرات الإنجاز
+        st.progress((completed_count + skipped_count) / total_invoices if total_invoices > 0 else 0)
+        
+        c_stat1, c_stat2, c_stat3, c_stat4 = st.columns(4)
+        c_stat1.metric("إجمالي الكشف", total_invoices)
+        c_stat2.metric("تم الإرسال", completed_count)
+        c_stat3.metric("ملغاة / كنسل", skipped_count)
+        c_stat4.metric("المتبقي", remaining_invoices)
+        
+        st.divider()
+
+        if not pending_df.empty:
+            current_row = pending_df.iloc[0]
+            
+            doc_ser_val = str(current_row['doc_ser_str'])
+            no_doc_val = str(current_row['no_doc'])
+            customer_name = str(current_row['name'])
+            phone_val = str(current_row['phone']).replace('.0', '').strip()
+            currency_val = str(current_row['curr'])
+            amount_val = current_row['amt']
+            balance_val = current_row.get('total', 0)
+            group_link_val = str(current_row.get('group_link', '')).strip()
+
+            expected_pdf_name = f"DOCSER_{doc_ser_val}.pdf"
+            matched_pdf = pdf_dict.get(expected_pdf_name)
+
+            # نص الرسالة
+            message_text = (
+                f"البوش للتجارة - المركز الرئيسي جدر\n"
+                f"الأخ: {customer_name}\n"
+                f"مبلغ الفاتورة: {amount_val:,.2f} {currency_val}\n"
+                f"الرصيد: {balance_val:,.2f} {currency_val}"
+            )
+
+            # عرض بيانات العميل
+            st.markdown(f"""
+                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-right: 5px solid #25D366; margin-bottom: 10px;">
+                    <h3 style="margin:0; color:#111;">👤 العميل: {customer_name}</h3>
+                    <p style="margin:5px 0;"><b>رقم الفاتورة:</b> {no_doc_val} | <b>الرقم التسلسلي:</b> {doc_ser_val}</p>
+                    <p style="margin:5px 0;"><b>مبلغ الفاتورة:</b> <span style="color:#d9534f; font-size:17px; font-weight:bold;">{amount_val:,.2f} {currency_val}</span></p>
+                    <p style="margin:5px 0;"><b>الرصيد الإجمالي:</b> <span style="color:#0275d8; font-size:17px; font-weight:bold;">{balance_val:,.2f} {currency_val}</span></p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # نسخ النص المباشر
+            st.caption("📝 نص الرسالة المجهز (اضغط للنسخ للجروب):")
+            st.code(message_text, language=None)
+
+            if matched_pdf:
+                st.success(f"✓ تم ربط فاتورة الـ PDF: ({expected_pdf_name})")
+                st.download_button(
+                    label="🔍 معاينة / تنزيل PDF الفاتورة",
+                    data=matched_pdf.getvalue(),
+                    file_name=expected_pdf_name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"dl_{doc_ser_val}"
+                )
+            else:
+                st.warning(f"⚠️ يرجى رفع ملف الـ PDF (الملف المطلوب: {expected_pdf_name})")
+
+            st.divider()
+
+            # الأزرار
+            encoded_message = urllib.parse.quote(message_text)
+            c1, c2, c3 = st.columns([2, 2, 1])
+            
+            with c1:
+                if group_link_val and group_link_val != 'nan' and group_link_val.startswith("http"):
+                    st.markdown(f'''
+                        <a href="{group_link_val}" target="_blank" style="text-decoration:none;">
+                            <button style="background-color: #0275d8; color: white; border: none; padding: 10px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
+                                👥 1. فتح رابط الجروب
+                            </button>
+                        </a>
+                    ''', unsafe_allow_html=True)
+                else:
+                    whatsapp_url = f"https://wa.me/{phone_val}?text={encoded_message}"
+                    st.markdown(f'''
+                        <a href="{whatsapp_url}" target="_blank" style="text-decoration:none;">
+                            <button style="background-color: #25D366; color: white; border: none; padding: 10px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
+                                📲 1. فتح محادثة الواتساب
+                            </button>
+                        </a>
+                    ''', unsafe_allow_html=True)
+                
+            with c2:
+                if st.button("✅ 2. تم الإرسال", type="primary", use_container_width=True, key=f"btn_send_{doc_ser_val}"):
+                    st.session_state.completed_invoices.add(doc_ser_val)
+                    st.rerun()
+
+            with c3:
+                if st.button("🚫 كنسل", use_container_width=True, key=f"btn_skip_{doc_ser_val}"):
+                    st.session_state.skipped_invoices.add(doc_ser_val)
+                    st.rerun()
+
+        else:
+            st.balloons()
+            st.success("🎉 ممتاز! تم مراجعة وإنجاز جميع الفواتير بنجاح.")
 
 # التحديث الجديد المتوافق مع السيرفر السحابي
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
