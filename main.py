@@ -556,77 +556,6 @@ def export_debts_to_json():
 
 # التبويب الرابع: إرسال فواتير الواتساب
 with tab4:
-    st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
-    
-    # -------------------------------------------------------------
-    # تهيئة متغيرات الجلسة (Session State Initialization)
-    # -------------------------------------------------------------
-    if "completed_invoices" not in st.session_state:
-        st.session_state.completed_invoices = set()
-        
-    if "skipped_invoices" not in st.session_state:
-        st.session_state.skipped_invoices = set()
-    # -------------------------------------------------------------
-
-    col_ex, col_pdf = st.columns(2)
-    with col_ex:
-        excel_file = st.file_uploader("رفع ملف كشف المبيعات (Excel)", type=["xlsx", "xls"], key="inv_excel")
-    with col_pdf:
-        pdf_files = st.file_uploader("رفع ملفات الفواتير (PDF دفعة واحدة)", type=["pdf"], accept_multiple_files=True, key="inv_pdfs")
-
-
-    if excel_file is not None:
-        try:
-            df = pd.read_excel(excel_file)
-            
-            # قراءة ملفات הـ PDF وتخزينها
-            pdf_dict = {}
-            if pdf_files:
-                for f in pdf_files:
-                    pdf_dict[os.path.basename(f.name).strip()] = f.read()
-
-            # تصفية العملات
-            if 'curr' in df.columns:
-                currencies = ["الكل"] + [str(c) for c in df['curr'].dropna().unique().tolist()]
-            else:
-                currencies = ["الكل"]
-                
-            selected_curr = st.selectbox("اختر العملة للتصفية:", currencies, key="curr_select")
-            
-            filtered_df = df.copy()
-            if selected_curr != "الكل" and 'curr' in filtered_df.columns:
-                filtered_df = filtered_df[filtered_df['curr'] == selected_curr]
-
-            # تجهيز الرقم التسلسلي
-            if 'doc_ser' in filtered_df.columns:
-                filtered_df['doc_ser_str'] = filtered_df['doc_ser'].astype(str).str.replace('.0', '', regex=False).str.strip()
-            else:
-                st.error("❌ لم يتم العثور على عمود (doc_ser) في ملف الإكسل!")
-                st.stop()
-            
-            # استبعاد المعالج
-            processed_set = st.session_state.completed_invoices.union(st.session_state.skipped_invoices)
-            pending_df = filtered_df[~filtered_df['doc_ser_str'].isin(processed_set)]
-            
-            total_invoices = len(filtered_df)
-            completed_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.completed_invoices)])
-            skipped_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.skipped_invoices)])
-            remaining_invoices = len(pending_df)
-            
-            st.progress((completed_count + skipped_count) / total_invoices if total_invoices > 0 else 0)
-            
-            c_stat1, c_stat2, c_stat3, c_stat4 = st.columns(4)
-            c_stat1.metric("إجمالي الكشف", total_invoices)
-            c_stat2.metric("تم الإرسال", completed_count)
-            c_stat3.metric("ملغاة / كنسل", skipped_count)
-            c_stat4.metric("المتبقي", remaining_invoices)
-            
-            st.divider()
-
-            if not pending_df.empty:
-                current_row = pending_df.iloc[0]
-                
-with tab4:
     st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب (بالرابط المباشر)")
     
     # 1. إدارة خدمة عرض الـ PDF عبر الرابط
@@ -644,13 +573,13 @@ with tab4:
         target_doc = st.query_params["view_pdf"]
         if target_doc in st.session_state.pdf_store:
             st.success(f"📄 فاتورة رقم: {target_doc}")
-            st.download_button()
+            st.download_button(
                 label="⬇️ اضغط هنا لتنزيل الفاتورة PDF",
                 data=st.session_state.pdf_store[target_doc],
                 file_name=f"DOCSER_{target_doc}.pdf",
                 mime="application/pdf",
                 use_container_width=True
-        
+            )
             st.stop()
         else:
             st.error("⚠️ الفاتورة غير متوفرة أو انتهت جلسة العرض.")
@@ -796,6 +725,12 @@ with tab4:
 
         except Exception as e:
             st.error(f"حدث خطأ أثناء معالجة الملفات: {e}")
+
+
+
+                
+
+
 
 
 #("السيرفرلتحديث الجديد المتوافق مع السيرفر السحابي
