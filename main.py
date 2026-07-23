@@ -626,6 +626,92 @@ with tab4:
             if not pending_df.empty:
                 current_row = pending_df.iloc[0]
                 
+with tab4:
+    st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب (بالرابط المباشر)")
+    
+    # 1. إدارة خدمة عرض الـ PDF عبر الرابط
+    if "pdf_store" not in st.session_state:
+        st.session_state.pdf_store = {}
+        
+    if "completed_invoices" not in st.session_state:
+        st.session_state.completed_invoices = set()
+        
+    if "skipped_invoices" not in st.session_state:
+        st.session_state.skipped_invoices = set()
+
+    # إذا حاول العميل فتح رابط الفاتورة
+    if "view_pdf" in st.query_params:
+        target_doc = st.query_params["view_pdf"]
+        if target_doc in st.session_state.pdf_store:
+            st.success(f"📄 فاتورة رقم: {target_doc}")
+            st.download_button(
+                label="⬇️ اضغط هنا لتنزيل الفاتورة PDF",
+                data=st.session_state.pdf_store[target_doc],
+                file_name=f"DOCSER_{target_doc}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+            st.stop()
+        else:
+            st.error("⚠️ الفاتورة غير متوفرة أو انتهت جلسة العرض.")
+            st.stop()
+
+    # 2. رفع الملفات
+    col_ex, col_pdf = st.columns(2)
+    with col_ex:
+        excel_file = st.file_uploader("رفع ملف كشف المبيعات (Excel)", type=["xlsx", "xls"], key="inv_excel")
+    with col_pdf:
+        pdf_files = st.file_uploader("رفع ملفات الفواتير (PDF دفعة واحدة)", type=["pdf"], accept_multiple_files=True, key="inv_pdfs")
+
+    if excel_file is not None:
+        try:
+            df = pd.read_excel(excel_file)
+            
+            # تخزين ملفات الـ PDF في ذاكرة السيرفر لرسم الروابط
+            if pdf_files:
+                for f in pdf_files:
+                    clean_name = os.path.basename(f.name).strip().replace("DOCSER_", "").replace(".pdf", "")
+                    st.session_state.pdf_store[clean_name] = f.getvalue()
+
+            # تصفية العملات
+            if 'curr' in df.columns:
+                currencies = ["الكل"] + [str(c) for c in df['curr'].dropna().unique().tolist()]
+            else:
+                currencies = ["الكل"]
+                
+            selected_curr = st.selectbox("اختر العملة للتصفية:", currencies, key="curr_select")
+            
+            filtered_df = df.copy()
+            if selected_curr != "الكل" and 'curr' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['curr'] == selected_curr]
+
+            if 'doc_ser' in filtered_df.columns:
+                filtered_df['doc_ser_str'] = filtered_df['doc_ser'].astype(str).str.replace('.0', '', regex=False).str.strip()
+            else:
+                st.error("❌ لم يتم العثور على عمود (doc_ser) في ملف الإكسل!")
+                st.stop()
+            
+            processed_set = st.session_state.completed_invoices.union(st.session_state.skipped_invoices)
+            pending_df = filtered_df[~filtered_df['doc_ser_str'].isin(processed_set)]
+            
+            total_invoices = len(filtered_df)
+            completed_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.completed_invoices)])
+            skipped_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.skipped_invoices)])
+            remaining_invoices = len(pending_df)
+            
+            st.progress((completed_count + skipped_count) / total_invoices if total_invoices > 0 else 0)
+            
+            c_stat1, c_stat2, c_stat3, c_stat4 = st.columns(4)
+            c_stat1.metric("إجمالي الكشف", total_invoices)
+            c_stat2.metric("تم الإرسال", completed_count)
+            c_stat3.metric("ملغاة / كنسل", skipped_count)
+            c_stat4.metric("المتبقي", remaining_invoices)
+            
+            st.divider()
+
+            if not pending_df.empty:
+                current_row = pending_df.iloc[0]
+                
                 doc_ser_val = str(current_row['doc_ser_str'])
                 no_doc_val = str(current_row.get('no_doc', '---'))
                 customer_name = str(current_row.get('name', 'عميل'))
@@ -635,16 +721,23 @@ with tab4:
                 balance_val = float(current_row.get('total', 0))
                 group_link_val = str(current_row.get('group_link', '')).strip()
 
-                expected_pdf_name = f"DOCSER_{doc_ser_val}.pdf"
-                matched_pdf_data = pdf_dict.get(expected_pdf_name)
+                # إنشاء رابط الفاتورة السحابي المباشر
+                # استبدل الدومين بالرابط الخاص بتطبيقك إذا كان مختلفاً
+                app_url = "https://sanbmoqa.streamlit.app" 
+                pdf_link = f"{app_url}/?view_pdf={doc_ser_val}"
 
-                # نص الرسالة
+                has_pdf = doc_ser_val in st.session_state.pdf_store
+
+                # بناء النص ذكيًا (يشمل رابط الـ PDF)
                 message_text = (
                     f"البوش للتجارة - المركز الرئيسي جدر\n"
                     f"الأخ: {customer_name}\n"
                     f"مبلغ الفاتورة: {amount_val:,.2f} {currency_val}\n"
-                    f"الرصيد: {balance_val:,.2f} {currency_val}"
+                    f"الرصيد الإجمالي: {balance_val:,.2f} {currency_val}\n"
                 )
+                
+                if has_pdf:
+                    message_text += f"📄 رابط الفاتورة PDF:\n{pdf_link}"
 
                 st.markdown(f"""
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-right: 5px solid #25D366; margin-bottom: 10px;">
@@ -655,21 +748,13 @@ with tab4:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                st.caption("📝 نص الرسالة المجهز (اضغط للنسخ للجروب):")
+                st.caption("📝 نص الرسالة المجهز للواتساب:")
                 st.code(message_text, language=None)
 
-                if matched_pdf_data:
-                    st.success(f"✓ تم ربط فاتورة الـ PDF: ({expected_pdf_name})")
-                    st.download_button(
-                        label="🔍 معاينة / تنزيل PDF الفاتورة",
-                        data=matched_pdf_data,
-                        file_name=expected_pdf_name,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key=f"dl_{doc_ser_val}"
-                    )
+                if has_pdf:
+                    st.success(f"✓ تم ربط الـ PDF وتوليد رابط مباشر للفاتورة!")
                 else:
-                    st.warning(f"⚠️ يرجى رفع ملف الـ PDF (الملف المطلوب: {expected_pdf_name})")
+                    st.warning(f"⚠️ لم يتم رفع الـ PDF الخاص بالرقم التسلسلي: {doc_ser_val}")
 
                 st.divider()
 
@@ -711,6 +796,7 @@ with tab4:
 
         except Exception as e:
             st.error(f"حدث خطأ أثناء معالجة الملفات: {e}")
+
 
 #("السيرفرلتحديث الجديد المتوافق مع السيرفر السحابي
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
