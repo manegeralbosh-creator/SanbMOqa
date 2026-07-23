@@ -552,7 +552,7 @@ def export_debts_to_json():
         return json.dumps(data, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)})
-التبويب الرابع
+# التبويب الرابع: إرسال فواتير الواتساب
 with tab4:
     st.header("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
     
