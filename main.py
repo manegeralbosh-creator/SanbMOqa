@@ -374,7 +374,7 @@ with tab1:
         
         for item in due_customers:
             raw_phone = str(item["phone_number"]).strip()
-            phone_list = [p.strip() for p in raw_phone.split('/') if p.strip()] if "/" in raw_phone else [raw_phone]
+            phone_list = [p.strip() for p in raw_phone.split('/') if p.stripالفواتيرفواتير] if "/" in raw_phone else [raw_phone]
             if not phone_list or phone_list == ["لا يوجد رقم"]:
                 phone_list = ["لا يوجد رقم"]
 
@@ -558,11 +558,22 @@ def export_debts_to_json():
 with tab4:
     st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
     
+    # -------------------------------------------------------------
+    # تهيئة متغيرات الجلسة (Session State Initialization)
+    # -------------------------------------------------------------
+    if "completed_invoices" not in st.session_state:
+        st.session_state.completed_invoices = set()
+        
+    if "skipped_invoices" not in st.session_state:
+        st.session_state.skipped_invoices = set()
+    # -------------------------------------------------------------
+
     col_ex, col_pdf = st.columns(2)
     with col_ex:
         excel_file = st.file_uploader("رفع ملف كشف المبيعات (Excel)", type=["xlsx", "xls"], key="inv_excel")
     with col_pdf:
         pdf_files = st.file_uploader("رفع ملفات الفواتير (PDF دفعة واحدة)", type=["pdf"], accept_multiple_files=True, key="inv_pdfs")
+
 
     if excel_file is not None:
         try:
