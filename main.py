@@ -1,4 +1,4 @@
-import streamlit as st
+SMSلتبويبببtreamlit as st
 import pandas as pd
 import re
 import urllib.parse
@@ -241,7 +241,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📊 العملاء المستحقين للتذكير اليوم", 
     "📲 إرسال فواتير الواتساب"
 ])
-SMSلتبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
+# لتبويبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
 with tab2:
     st.subheader("🚀 منصة الإرسال الجماعي المتتابع للرسائل النصية (SMS)")
     
