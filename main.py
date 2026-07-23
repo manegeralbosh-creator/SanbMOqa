@@ -644,13 +644,13 @@ with tab4:
         target_doc = st.query_params["view_pdf"]
         if target_doc in st.session_state.pdf_store:
             st.success(f"📄 فاتورة رقم: {target_doc}")
-            st.download_button(
+            st.download_button()
                 label="⬇️ اضغط هنا لتنزيل الفاتورة PDF",
                 data=st.session_state.pdf_store[target_doc],
                 file_name=f"DOCSER_{target_doc}.pdf",
                 mime="application/pdf",
                 use_container_width=True
-            )
+        
             st.stop()
         else:
             st.error("⚠️ الفاتورة غير متوفرة أو انتهت جلسة العرض.")
