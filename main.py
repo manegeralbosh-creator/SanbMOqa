@@ -721,13 +721,15 @@ with tab4:
 
 #with col_pdf:
         # 1. زر إظهار وتحميل الملف في الواجهة
-        st.download_button(
-            label=f"📥 تنزيل الملف ({serial_number}.pdf)",
-            data=pdf_bytes,
-            file_name=f"Statement_{serial_number}.pdf",
-            mime="application/pdf",
-            key=f"download_pdf_{serial_number}",
-            use_container_width=True
+        
+st.download_button(
+    label=f"📥 تنزيل الفاتورة ({clean_serial}.pdf)",
+    data=pdf_bytes,
+    file_name=f"Invoice_{clean_serial}.pdf",
+    mime="application/pdf",
+    key=f"dl_btn_{clean_serial}",
+    use_container_width=True
+)
            
                 
                 
