@@ -733,12 +733,22 @@ with tab4:
 
 
 # 1. إعداد بيانات الملف والنص الأساسي المضمن في التطبيق
+
+
+
+# تأكد أن هذه المتغيرات (مثل doc_ser و customer_name) معرفة في كودك قبل هذا السطر
+# إذا كان رقم الفاتورة لديك يخزن في متغير آخر، استبدل doc_ser به
+current_doc_ser = (
+    doc_ser  # أو استبدله بمتغير رقم الفاتورة الفعلي لديك في التطبيق
+)
+current_customer = (
+    customer_name  # أو استبدله بمتغير اسم العميل الفعلي لديك
+)
+
 b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-file_name = f"Invoice_{doc_ser}.pdf"
+file_name = f"Invoice_{current_doc_ser}.pdf"
+share_text = f"فاتورة محلات الوحدة // طارق الفخري 📉\nرقم الفاتورة: {current_doc_ser}\nالعميل: {current_customer}"
 
-
-
-# 2. كود زر المشاركة الصافي
 share_code = f"""
 <button id="shareBtn" style="width: 100%; background-color: #25D366; color: white; padding: 12px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;">
     📤 مشاركة الفاتورة
@@ -776,7 +786,6 @@ document.getElementById('shareBtn').onclick = async () => {{
 </script>
 """
 
-# 3. عرض الزر في الواجهة
 components.html(share_code, height=60)
 
            
