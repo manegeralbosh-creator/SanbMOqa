@@ -671,9 +671,17 @@ with tab4:
                 st.code(message_text, language=None)
 
                 # --- بروز الفاتورة PDF للعميل في الواجهة ---
+                                # --- بروز الفاتورة PDF للعميل في الواجهة ---
                 st.markdown("### 📄 الفاتورة المرفقة للعميل:")
                 if pdf_bytes:
                     st.success(f"✓ الفاتورة (DOCSER_{doc_ser_val}.pdf) جاهزة للارسال والتحميل")
+                    
+                    # === كود عرض الـ PDF مباشرة في الواجهة ===
+                    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="450" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    # ==========================================
+
                     st.download_button(
                         label=f"⬇️ اضغط هنا لتنزيل فاتورة {customer_name} (PDF)",
                         data=pdf_bytes,
@@ -681,6 +689,8 @@ with tab4:
                         mime="application/pdf",
                         use_container_width=True,
                         key=f"dl_btn_{doc_ser_val}"
+                    )
+
                     )
                 else:
                     st.warning(f"⚠️ لم يتم العثور على ملف PDF مطبق للرقم التسلسلي: (DOCSER_{doc_ser_val}.pdf). يرجى تأكيد رفعه ضمن الملفات.")
