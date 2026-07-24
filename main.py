@@ -6,7 +6,7 @@ import io
 import sqlite3
 from datetime import datetime
 import streamlit.components.v1 as components
-
+import base64
 import os
 from pathlib import Path
 import streamlit as st
