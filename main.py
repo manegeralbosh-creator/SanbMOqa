@@ -730,6 +730,55 @@ with tab4:
 
 
 
+
+
+# 1. إعداد بيانات الملف والنص الأساسي المضمن في التطبيق
+b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+file_name = f"Invoice_{doc_ser}.pdf"
+
+
+
+# 2. كود زر المشاركة الصافي
+share_code = f"""
+<button id="shareBtn" style="width: 100%; background-color: #25D366; color: white; padding: 12px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;">
+    📤 مشاركة الفاتورة
+</button>
+
+<script>
+document.getElementById('shareBtn').onclick = async () => {{
+    const b64Data = "{b64_pdf}";
+    const fileName = "{file_name}";
+    const textMessage = `{share_text}`;
+
+    const byteCharacters = atob(b64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {{
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }}
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], {{type: 'application/pdf'}});
+    const file = new File([blob], fileName, {{type: 'application/pdf'}});
+
+    if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
+        try {{
+            await navigator.share({{
+                files: [file],
+                title: 'فاتورة محلات الوحدة',
+                text: textMessage
+            }});
+        }} catch (error) {{
+            console.log('تم إلغاء المشاركة:', error);
+        }}
+    }} else {{
+        alert('عذراً، متصفح هاتفك لا يدعم مشاركة الملفات مباشرة.');
+    }}
+}};
+</script>
+"""
+
+# 3. عرض الزر في الواجهة
+components.html(share_code, height=60)
+
            
                 
                 
