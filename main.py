@@ -559,54 +559,43 @@ def export_debts_to_json():
         return json.dumps({"error": str(e)})
 
 # التبويب الرابع: إرسال فواتير الواتساب
+
+
 with tab4:
-    st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب (بالرابط المباشر)")
+    st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
     
-    # 1. إدارة خدمة عرض الـ PDF عبر الرابط
-    if "pdf_store" not in st.session_state:
-        st.session_state.pdf_store = {}
-        
+    # 1. تهيئة المتغيرات الجلسة
     if "completed_invoices" not in st.session_state:
         st.session_state.completed_invoices = set()
         
     if "skipped_invoices" not in st.session_state:
         st.session_state.skipped_invoices = set()
 
-    # إذا حاول العميل فتح رابط الفاتورة
-    if "view_pdf" in st.query_params:
-        target_doc = st.query_params["view_pdf"]
-        if target_doc in st.session_state.pdf_store:
-            st.success(f"📄 فاتورة رقم: {target_doc}")
-            st.download_button(
-                label="⬇️ اضغط هنا لتنزيل الفاتورة PDF",
-                data=st.session_state.pdf_store[target_doc],
-                file_name=f"DOCSER_{target_doc}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-            st.stop()
-        else:
-            st.error("⚠️ الفاتورة غير متوفرة أو انتهت جلسة العرض.")
-            st.stop()
-
-    # 2. رفع الملفات
+    # 2. رفع الملفات (الإكسل + الفواتير PDF دفعة واحدة)
     col_ex, col_pdf = st.columns(2)
     with col_ex:
         excel_file = st.file_uploader("رفع ملف كشف المبيعات (Excel)", type=["xlsx", "xls"], key="inv_excel")
     with col_pdf:
         pdf_files = st.file_uploader("رفع ملفات الفواتير (PDF دفعة واحدة)", type=["pdf"], accept_multiple_files=True, key="inv_pdfs")
 
+    # 3. معالجة وتخزين ملفات الـ PDF المرفوعة في الذاكرة
+    pdf_store = {}
+    if pdf_files:
+        for f in pdf_files:
+            # استخراج الرقم التسلسلي من اسم الملف (سواء كان DOCSER_123.pdf أو 123.pdf)
+            raw_name = os.path.basename(f.name).replace(".pdf", "").replace(".PDF", "").strip()
+            clean_num = ''.join(filter(str.isdigit, raw_name))
+            
+            file_bytes = f.getvalue()
+            pdf_store[raw_name] = file_bytes
+            if clean_num:
+                pdf_store[clean_num] = file_bytes
+
     if excel_file is not None:
         try:
             df = pd.read_excel(excel_file)
             
-            # تخزين ملفات الـ PDF في ذاكرة السيرفر لرسم الروابط
-            if pdf_files:
-                for f in pdf_files:
-                    clean_name = os.path.basename(f.name).strip().replace("DOCSER_", "").replace(".pdf", "")
-                    st.session_state.pdf_store[clean_name] = f.getvalue()
-
-            # تصفية العملات
+            # تصفية حسب العملة
             if 'curr' in df.columns:
                 currencies = ["الكل"] + [str(c) for c in df['curr'].dropna().unique().tolist()]
             else:
@@ -618,15 +607,18 @@ with tab4:
             if selected_curr != "الكل" and 'curr' in filtered_df.columns:
                 filtered_df = filtered_df[filtered_df['curr'] == selected_curr]
 
+            # التأكد من وجود عمود الرقم التسلسلي للفاتورة
             if 'doc_ser' in filtered_df.columns:
                 filtered_df['doc_ser_str'] = filtered_df['doc_ser'].astype(str).str.replace('.0', '', regex=False).str.strip()
             else:
                 st.error("❌ لم يتم العثور على عمود (doc_ser) في ملف الإكسل!")
                 st.stop()
             
+            # استبعاد الفواتير المعالجة سابقاً
             processed_set = st.session_state.completed_invoices.union(st.session_state.skipped_invoices)
             pending_df = filtered_df[~filtered_df['doc_ser_str'].isin(processed_set)]
             
+            # العدادات والإحصائيات
             total_invoices = len(filtered_df)
             completed_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.completed_invoices)])
             skipped_count = len(filtered_df[filtered_df['doc_ser_str'].isin(st.session_state.skipped_invoices)])
@@ -642,6 +634,7 @@ with tab4:
             
             st.divider()
 
+            # عرض الفاتورة الحالية للعميل المستهدف
             if not pending_df.empty:
                 current_row = pending_df.iloc[0]
                 
@@ -652,26 +645,19 @@ with tab4:
                 currency_val = str(current_row.get('curr', ''))
                 amount_val = float(current_row.get('amt', 0))
                 balance_val = float(current_row.get('total', 0))
-                group_link_val = str(current_row.get('group_link', '')).strip()
 
-                # إنشاء رابط الفاتورة السحابي المباشر
-                # استبدل الدومين بالرابط الخاص بتطبيقك إذا كان مختلفاً
-                app_url = "https://sanbmoqa.streamlit.app" 
-                pdf_link = f"{app_url}/?view_pdf={doc_ser_val}"
+                # البحث عن ملف الـ PDF المطابق للعميل
+                pdf_bytes = pdf_store.get(doc_ser_val) or pdf_store.get(f"DOCSER_{doc_ser_val}")
 
-                has_pdf = doc_ser_val in st.session_state.pdf_store
-
-                # بناء النص ذكيًا (يشمل رابط الـ PDF)
+                # نص الرسالة المجهز للواتساب
                 message_text = (
                     f"البوش للتجارة - المركز الرئيسي جدر\n"
                     f"الأخ: {customer_name}\n"
                     f"مبلغ الفاتورة: {amount_val:,.2f} {currency_val}\n"
                     f"الرصيد الإجمالي: {balance_val:,.2f} {currency_val}\n"
                 )
-                
-                if has_pdf:
-                    message_text += f"📄 رابط الفاتورة PDF:\n{pdf_link}"
 
+                # بطاقة العميل
                 st.markdown(f"""
                     <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-right: 5px solid #25D366; margin-bottom: 10px;">
                         <h3 style="margin:0; color:#111;">👤 العميل: {customer_name}</h3>
@@ -684,34 +670,36 @@ with tab4:
                 st.caption("📝 نص الرسالة المجهز للواتساب:")
                 st.code(message_text, language=None)
 
-                if has_pdf:
-                    st.success(f"✓ تم ربط الـ PDF وتوليد رابط مباشر للفاتورة!")
+                # --- بروز الفاتورة PDF للعميل في الواجهة ---
+                st.markdown("### 📄 الفاتورة المرفقة للعميل:")
+                if pdf_bytes:
+                    st.success(f"✓ الفاتورة (DOCSER_{doc_ser_val}.pdf) جاهزة للارسال والتحميل")
+                    st.download_button(
+                        label=f"⬇️ اضغط هنا لتنزيل فاتورة {customer_name} (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"DOCSER_{doc_ser_val}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"dl_btn_{doc_ser_val}"
+                    )
                 else:
-                    st.warning(f"⚠️ لم يتم رفع الـ PDF الخاص بالرقم التسلسلي: {doc_ser_val}")
+                    st.warning(f"⚠️ لم يتم العثور على ملف PDF مطبق للرقم التسلسلي: (DOCSER_{doc_ser_val}.pdf). يرجى تأكيد رفعه ضمن الملفات.")
 
                 st.divider()
 
+                # أزرار الإرسال والتحكم
                 encoded_message = urllib.parse.quote(message_text)
+                whatsapp_url = f"https://wa.me/{phone_val}?text={encoded_message}"
+
                 c1, c2, c3 = st.columns([2, 2, 1])
-                
                 with c1:
-                    if group_link_val and group_link_val != 'nan' and group_link_val.startswith("http"):
-                        st.markdown(f'''
-                            <a href="{group_link_val}" target="_blank" style="text-decoration:none;">
-                                <button style="background-color: #0275d8; color: white; border: none; padding: 10px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
-                                    👥 1. فتح رابط الجروب
-                                </button>
-                            </a>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        whatsapp_url = f"https://wa.me/{phone_val}?text={encoded_message}"
-                        st.markdown(f'''
-                            <a href="{whatsapp_url}" target="_blank" style="text-decoration:none;">
-                                <button style="background-color: #25D366; color: white; border: none; padding: 10px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
-                                    📲 1. فتح محادثة الواتساب
-                                </button>
-                            </a>
-                        ''', unsafe_allow_html=True)
+                    st.markdown(f'''
+                        <a href="{whatsapp_url}" target="_blank" style="text-decoration:none;">
+                            <button style="background-color: #25D366; color: white; border: none; padding: 10px; font-size: 14px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">
+                                📲 1. فتح محادثة الواتساب
+                            </button>
+                        </a>
+                    ''', unsafe_allow_html=True)
                     
                 with c2:
                     if st.button("✅ 2. تم الإرسال", type="primary", use_container_width=True, key=f"btn_send_{doc_ser_val}"):
@@ -728,7 +716,12 @@ with tab4:
                 st.success("🎉 ممتاز! تم مراجعة وإنجاز جميع الفواتير بنجاح.")
 
         except Exception as e:
-            st.error(f"حدث خطأ أثناء معالجة الملفات: {e}")
+            st.error(f"حدث خطأ أثناء معالجة البيانات: {e}")
+
+
+                
+                
+                
 
 
 
