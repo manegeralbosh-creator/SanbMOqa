@@ -719,17 +719,7 @@ with tab4:
             st.error(f"حدث خطأ أثناء معالجة البيانات: {e}")
 
 
-#with col_pdf:
-        # 1. زر إظهار وتحميل الملف في الواجهة
-        
-st.download_button(
-    label=f"📥 تنزيل الفاتورة ({doc_ser}.pdf)",
-    data=pdf_bytes,
-    file_name=f"Invoice_{doc_ser}.pdf",
-    mime="application/pdf",
-    key=f"dl_btn_{doc_ser}",
-    use_container_width=True
-)
+
            
                 
                 
