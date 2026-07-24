@@ -691,7 +691,7 @@ with tab4:
                         key=f"dl_btn_{doc_ser_val}"
                     )
 
-                    )
+                
                 else:
                     st.warning(f"⚠️ لم يتم العثور على ملف PDF مطبق للرقم التسلسلي: (DOCSER_{doc_ser_val}.pdf). يرجى تأكيد رفعه ضمن الملفات.")
 
