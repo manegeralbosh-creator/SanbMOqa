@@ -723,11 +723,11 @@ with tab4:
         # 1. زر إظهار وتحميل الملف في الواجهة
         
 st.download_button(
-    label=f"📥 تنزيل الفاتورة ({clean_serial}.pdf)",
+    label=f"📥 تنزيل الفاتورة ({doc_ser}.pdf)",
     data=pdf_bytes,
     file_name=f"Invoice_{doc_ser}.pdf",
     mime="application/pdf",
-    key=f"dl_btn_{clean_serial}",
+    key=f"dl_btn_{doc_ser}",
     use_container_width=True
 )
            
