@@ -373,16 +373,14 @@ with tab1:
         st.write("### إجمالي الحسابات النشطة: " + str(len(all_customers)) + " | المستحقين للمتابعة اليوم: " + str(len(due_customers)))
         
         for item in due_customers:
-            raw_phone = str(item.get("phone_number", "")).replace(".0", "").strip()
-if "/" in raw_phone:
-    phone_list = [p.strip() for p in raw_phone.split("/") if p.strip()]
-elif "," in raw_phone:
-    phone_list = [p.strip() for p in raw_phone.split(",") if p.strip()]
-else:
-    phone_list = [raw_phone] if raw_phone and raw_phone != "nan" else []
+        raw_phone = str(item.get("phone_number", "")).replace(".0", "").strip()
+        if "/" in raw_phone:
+            phone_list = [p.strip() for p in raw_phone.split("/") if p.strip()]
+        elif "," in raw_phone:
+            phone_list = [p.strip() for p in raw_phone.split(",") if p.strip()]
+        else:
+            phone_list = [raw_phone] if raw_phone and raw_phone != "nan" else ["لا يوجد رقم"]
 
-            if not phone_list or phone_list == ["لا يوجد رقم"]:
-                phone_list = ["لا يوجد رقم"]
 
             debt_items = []
             display_parts = []
