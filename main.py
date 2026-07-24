@@ -725,7 +725,7 @@ with tab4:
 st.download_button(
     label=f"📥 تنزيل الفاتورة ({clean_serial}.pdf)",
     data=pdf_bytes,
-    file_name=f"Invoice_{clean_serial}.pdf",
+    file_name=f"Invoice_{doc_ser}.pdf",
     mime="application/pdf",
     key=f"dl_btn_{clean_serial}",
     use_container_width=True
