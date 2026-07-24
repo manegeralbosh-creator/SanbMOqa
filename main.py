@@ -719,7 +719,15 @@ with tab4:
             st.error(f"حدث خطأ أثناء معالجة البيانات: {e}")
 
 
-                
+     #with col_pdf:
+        # 1. زر إظهار وتحميل الملف في الواجهة
+        st.download_button(
+            label=f"📥 تنزيل الملف ({serial_number}.pdf)",
+            data=pdf_bytes,
+            file_name=f"Statement_{serial_number}.pdf",
+            mime="application/pdf",
+            key=f"download_pdf_{serial_number}",
+            use_container_width=with   
                 
                 
 
