@@ -740,8 +740,5 @@ with tab4:
 
 
             
-#("السيرفرلتحديث الجديد المتوافق مع السيرفر السحابي
-if "api" in st.query_params and st.query_params["api"] == "get_debts":
-    st.text(export_debts_to_json())
-    st.stop()
+
 # نهاية الكود
