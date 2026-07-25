@@ -560,6 +560,11 @@ def export_debts_to_json():
 
 # التبويب الرابع: إرسال فواتير الواتساب
 
+import base64
+import os
+import urllib.parse
+import pandas as pd
+import streamlit as st
 
 with tab4:
     st.subheader("📲 نظام مراجعة وإرسال الفواتير عبر الواتساب")
@@ -671,17 +676,9 @@ with tab4:
                 st.code(message_text, language=None)
 
                 # --- بروز الفاتورة PDF للعميل في الواجهة ---
-                                # --- بروز الفاتورة PDF للعميل في الواجهة ---
                 st.markdown("### 📄 الفاتورة المرفقة للعميل:")
                 if pdf_bytes:
                     st.success(f"✓ الفاتورة (DOCSER_{doc_ser_val}.pdf) جاهزة للارسال والتحميل")
-                    
-                    # === كود عرض الـ PDF مباشرة في الواجهة ===
-                    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="450" type="application/pdf"></iframe>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
-                    # ==========================================
-
                     st.download_button(
                         label=f"⬇️ اضغط هنا لتنزيل فاتورة {customer_name} (PDF)",
                         data=pdf_bytes,
@@ -690,8 +687,6 @@ with tab4:
                         use_container_width=True,
                         key=f"dl_btn_{doc_ser_val}"
                     )
-
-                
                 else:
                     st.warning(f"⚠️ لم يتم العثور على ملف PDF مطبق للرقم التسلسلي: (DOCSER_{doc_ser_val}.pdf). يرجى تأكيد رفعه ضمن الملفات.")
 
@@ -729,65 +724,14 @@ with tab4:
             st.error(f"حدث خطأ أثناء معالجة البيانات: {e}")
 
 
+            
+                    
+
+                
 
 
 
-# 1. إعداد بيانات الملف والنص الأساسي المضمن في التطبيق
 
-
-
-# تأكد أن هذه المتغيرات (مثل doc_ser و customer_name) معرفة في كودك قبل هذا السطر
-# إذا كان رقم الفاتورة لديك يخزن في متغير آخر، استبدل doc_ser به
-current_doc_ser = (
-    doc_ser  )
-    # أو استبدله بمتغير رقم الفاتورة الفعلي لديك في التطبيق
-
-current_customer = (
-    customer_name  # أو استبدله بمتغير اسم العميل الفعلي لديك
-)
-
-b64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-file_name = f"Invoice_{current_doc_ser}.pdf"
-share_text = f"فاتورة محلات الوحدة // طارق الفخري 📉\nرقم الفاتورة: {current_doc_ser}\nالعميل: {current_customer}"
-
-share_code = f"""
-<button id="shareBtn" style="width: 100%; background-color: #25D366; color: white; padding: 12px; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;">
-    📤 مشاركة الفاتورة
-</button>
-
-<script>
-document.getElementById('shareBtn').onclick = async () => {{
-    const b64Data = "{b64_pdf}";
-    const fileName = "{file_name}";
-    const textMessage = `{share_text}`;
-
-    const byteCharacters = atob(b64Data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {{
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }}
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], {{type: 'application/pdf'}});
-    const file = new File([blob], fileName, {{type: 'application/pdf'}});
-
-    if (navigator.canShare && navigator.canShare({{ files: [file] }})) {{
-        try {{
-            await navigator.share({{
-                files: [file],
-                title: 'فاتورة محلات الوحدة',
-                text: textMessage
-            }});
-        }} catch (error) {{
-            console.log('تم إلغاء المشاركة:', error);
-        }}
-    }} else {{
-        alert('عذراً، متصفح هاتفك لا يدعم مشاركة الملفات مباشرة.');
-    }}
-}};
-</script>
-"""
-
-components.html(share_code, height=60)
 
            
                 
@@ -795,11 +739,7 @@ components.html(share_code, height=60)
 
 
 
-                
-
-
-
-
+            
 #("السيرفرلتحديث الجديد المتوافق مع السيرفر السحابي
 if "api" in st.query_params and st.query_params["api"] == "get_debts":
     st.text(export_debts_to_json())
