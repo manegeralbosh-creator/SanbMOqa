@@ -8,3 +8,4 @@ gspread
 pdfplumber
 pymupdf
 google-auth
+rarfile
