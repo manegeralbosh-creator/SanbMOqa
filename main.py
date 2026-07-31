@@ -235,12 +235,13 @@ if all_customers:
             due_customers.append(cust)
 
 # تعريف التبويبات
-tab1, tab2, tab3, tab4 , tab5 = st.tabs([
+tab1, tab2, tab3, tab4 , tab5 , tab6 = st.tabs([
     "📥 رفع كشف الحساب اليدوي", 
     "🚀 الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS", 
     "📊 العملاء المستحقين للتذكير اليوم", 
     "📲 إرسال فواتير الواتساب",
-    "الطابور",
+    "الطابور", 
+    " الرسائل المجدوله",
 ])
 # لتبويبويب الثاني: الإرسال الجماعي المتتابع للرسائل النصية القصيرة SMS
 with tab2:
@@ -1118,9 +1119,98 @@ with st.expander("🤖 نظام الإرسال الآلي المبرمج (Queue 
 
 
 
+#الرسائل المجدوله
 
+ import streamlit as st
+import urllib.parse
 
-           
+st.subheader("📦 حزمة جدولة الرسائل المتسلسلة (حرّة وقابلة للتعديل)")
+
+# التحقق من وجود بيانات العملاء المستخرجة من ملف الاكسل
+if 'due_customers' in locals() and due_customers:
+    selected_cust = st.selectbox(
+        "اختر العميل:", 
+        due_customers, 
+        format_func=lambda x: f"{x['customer_name']} (الهاتف: {x['phone_number']})"
+    )
+    
+    c_name = selected_cust['customer_name']
+    c_phone = selected_cust['phone_number']
+    
+    # جلب الرصيد من الاكسل
+    debt_parts = [f"{bal:,} {curr}" for curr, bal in selected_cust.get("debts", {}).items()]
+    c_debt_str = " و ".join(debt_parts) if debt_parts else "0"
+
+else:
+    # قيم افتراضية للتجربة في حال لم يتم تحميل الملف بعد
+    c_name = "شركة الشاحنات السريعة"
+    c_phone = "777554755"
+    c_debt_str = "150,000 ريال يمني"
+
+st.info(f"👤 **العميل:** {c_name} | 💰 **الرصيد من الاكسل:** {c_debt_str}")
+
+with st.form("free_sequence_form"):
+    st.markdown("### ✍️ اكتب رسائلك بحرية كاملة (يمكنك إدراج الرصيد أينما شئت)")
+    
+    # رسالة 1 فارغة وقابلة للكتابة
+    msg_1 = st.text_area(
+        "نص الرسالة الأولى:", 
+        value="", 
+        placeholder="اكتب نص الرسالة الأولى هنا بكل حرية... (مثلاً: رصيدكم المتبقي هو)"
+    )
+    time_1 = st.text_input("توقيت الرسالة الأولى:", "بعد ساعتين")
+    
+    st.markdown("---")
+    
+    # رسالة 2 فارغة وقابلة للكتابة
+    msg_2 = st.text_area(
+        "نص الرسالة الثانية:", 
+        value="", 
+        placeholder="اكتب نص الرسالة الثانية هنا..."
+    )
+    time_2 = st.text_input("توقيت الرسالة الثانية:", "بعد 3 أيام")
+    
+    st.markdown("---")
+    
+    # رسالة 3 فارغة وقابلة للكتابة
+    msg_3 = st.text_area(
+        "نص الرسالة الثالثة:", 
+        value="", 
+        placeholder="اكتب نص الرسالة الثالثة هنا..."
+    )
+    time_3 = st.text_input("توقيت الرسالة الثالثة:", "بعد أسبوع")
+
+    generate_package_btn = st.form_submit_button("🚀 تجهيز الحزمة وتصديرها")
+
+if generate_package_btn:
+    if not c_phone.strip():
+        st.error("رقم الهاتف غير متوفر.")
+    else:
+        st.success("✅ تم تجهيز الحزمة بنجاح!")
+        
+        # تجميع النصوص التي كتبتها أنت يدوياً بجانب الرصيد المستخرج من الاكسل
+        full_package_text = (
+            f"--- حزمة رسائل للعميل: {c_name} ---\n"
+            f"الرصيد المسجل: {c_debt_str}\n\n"
+            f"[الرسالة 1 - موعدها: {time_1}]\n{msg_1 if msg_1 else '(لا توجد رسالة مكتوبة)'}\n\n"
+            f"[الرسالة 2 - موعدها: {time_2}]\n{msg_2 if msg_2 else '(لا توجد رسالة مكتوبة)'}\n\n"
+            f"[الرسالة 3 - موعدها: {time_3}]\n{msg_3 if msg_3 else '(لا توجد رسالة مكتوبة)'}"
+        )
+        
+        st.text_area("النص النهائي للحزمة:", full_package_text, height=260)
+        
+        # رابط الإرسال المباشر
+        encoded_pkg = urllib.parse.quote(full_package_text)
+        sms_link = f"sms:{c_phone}?body={encoded_pkg}"
+        
+        st.markdown(f'''
+            <a href="{sms_link}" target="_blank">
+                <button style="background-color: #1E3A8A; color: white; border: none; padding: 12px; border-radius: 6px; width: 100%; font-weight: bold; font-size: 16px;">
+                    📩 إرسال الحزمة عبر الرسائل
+                </button>
+            </a>
+        ''', unsafe_allow_html=True)
+          
                 
                 
 
