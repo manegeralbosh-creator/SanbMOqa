@@ -1099,7 +1099,7 @@ with st.expander("🤖 نظام الإرسال الآلي المبرمج (Queue 
                 status_text.text(f"جاري الإرسال إلى: {cust['customer_name']} ({idx + 1} من {total_clients})...")
                 
                 # تنفيذ الإرسال عبر الـ API
-                # is_sent, err_msg = send_whatsapp_via_api(formatted_phone, msg_text)
+                 is_sent, err_msg = send_whatsapp_via_api(formatted_phone, msg_text)
                 
                 # محاكاة الانتظار الآمن (فاصل زمني 5 ثوانٍ بين كل رسالة لحماية الرقم)
                 time.sleep(5) 
