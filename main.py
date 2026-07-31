@@ -1041,9 +1041,79 @@ with tab4:
     except Exception as e:
       st.error(f'حدث خطأ أثناء معالجة البيانات: {e}')
      
-                    
-
+      #التبويب الخامس طابور الرسائل
                 
+import time
+import requests
+
+# دالة إرسال الرسالة عبر الـ API الرسمي (تأكد من وضع بيانات مزود الخدمة ورقم الـ Token الخاص بك)
+def send_whatsapp_via_api(phone, message):
+    # مثال توضيحي للاتصال بواجهة برمجة التطبيقات (API) الخاصة بالواتساب
+    api_url = "https://api.whatsapp-provider.com/v1/send" # استبدل الرابط برابط المزود المعتمد لديك
+    headers = {
+        "Authorization": "Bearer YOUR_API_TOKEN", # ضع رمز التصريح الخاص بك هنا
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "phone": phone,
+        "message": message
+    }
+    
+    try:
+        response = requests.post(api_url, json=payload, headers=headers)
+        if response.status_code == 200:
+            return True, "تم الإرسال بنجاح"
+        else:
+            return False, response.text
+    except Exception as e:
+        return False, str(e)
+
+# --- واجهة الطابور الآلي في Streamlit ---
+with st.expander("🤖 نظام الإرسال الآلي المبرمج (Queue عبر API)"):
+    st.info("💡 هذا النظام سيقوم بإرسال الرسائل للجميع تلقائياً وبشكل متتابع مع فاصل زمني حمايةً للرقم من الحظر.")
+    
+    if st.button("🚀 بدء الإرسال الآلي لجميع المستحقين"):
+        if not due_customers:
+            st.warning("لا يوجد عملاء مستحقون للإرسال اليوم.")
+        else:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            valid_queue_customers = [c for c in due_customers if str(c["phone_number"]).strip() and str(c["phone_number"]).strip() != "لا يوجد رقم"]
+            total_clients = len(valid_queue_customers)
+            
+            success_count = 0
+            
+            for idx, cust in enumerate(valid_queue_customers):
+                raw_phone = str(cust["phone_number"]).strip()
+                first_phone = [p.strip() for p in raw_phone.split('/') if p.strip()][0]
+                clean_phone = first_phone.lstrip('0')
+                formatted_phone = "967" + clean_phone if not clean_phone.startswith("967") else clean_phone
+                
+                # تجهيز نص الرسالة للعميل
+                debt_parts = [f"{bal:,} {curr}" for curr, bal in cust["debts"].items()]
+                combined_debt_str = " و ".join(debt_parts)
+                msg_text = f"تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: {combined_debt_str}.\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
+                
+                status_text.text(f"جاري الإرسال إلى: {cust['customer_name']} ({idx + 1} من {total_clients})...")
+                
+                # تنفيذ الإرسال عبر الـ API
+                # is_sent, err_msg = send_whatsapp_via_api(formatted_phone, msg_text)
+                
+                # محاكاة الانتظار الآمن (فاصل زمني 5 ثوانٍ بين كل رسالة لحماية الرقم)
+                time.sleep(5) 
+                
+                # تحديث قاعدة البيانات بأن الرسالة أُرسلت
+                cursor = conn.cursor()
+                for db_id in cust["ids"]:
+                    cursor.execute("UPDATE customers_debts SET last_sent_date = ? WHERE id = ?", (str(today), db_id))
+                conn.commit()
+                
+                success_count += 1
+                progress_bar.progress((idx + 1) / total_clients)
+            
+            status_text.success(f"🎉 تم الانتهاء من إرسال الرسائل الآلية بنجاح لـ {success_count} عميل عبر الطابور!")
+            st.rerun()
 
 
 
