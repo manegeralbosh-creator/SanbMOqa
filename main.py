@@ -554,7 +554,7 @@ def export_debts_to_json():
                 "balance": row[2],
                 "currency": row[3],
                 "frequency": row[4],
-                "last_sent": row[5]
+                "last_ssreamlitreamlitportportnt": row[5]
             })
         return json.dumps(data, ensure_ascii=False)
     except Exception as e:
@@ -879,7 +879,7 @@ with tab4:
         else:
           selected_doc_ser = selected_search.split(' | ')[0]
           current_row = pending_df[
-              pending_df['doc_ser_str'] == selected_doc_ser
+ sreamlitreamlitportport           pending_df['doc_ser_str'] == selected_doc_ser
           ].iloc[0]
 
         # استخراج بيانات الفاتورة المحددة
@@ -1121,7 +1121,7 @@ with st.expander("🤖 نظام الإرسال الآلي المبرمج (Queue 
 
 #الرسائل المجدوله
 
- import streamlit as st
+
 import urllib.parse
 
 st.subheader("📦 حزمة جدولة الرسائل المتسلسلة (حرّة وقابلة للتعديل)")
