@@ -879,7 +879,7 @@ with tab4:
         else:
           selected_doc_ser = selected_search.split(' | ')[0]
           current_row = pending_df[
- sreamlitreamlitportport           pending_df['doc_ser_str'] == selected_doc_ser
+            pending_df['doc_ser_str'] == selected_doc_ser
           ].iloc[0]
 
         # استخراج بيانات الفاتورة المحددة
