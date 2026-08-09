@@ -3,70 +3,99 @@ import pandas as pd
 import urllib.parse
 import zipfile
 
-st.set_page_config(page_title="طابور رسائل الشريحة", page_icon="📱", layout="wide")
+st.set_page_config(page_title="طابور فواتير الشريحة", page_icon="📱", layout="wide")
 
-st.title("📱 طابور إرسال الفواتير عبر شريحة الهاتف (SMS)")
-st.write("أرسل الفواتير لعملائك مباشرة من شريحة هاتفك بأمان تام وبدون أي تكاليف إضافية.")
+st.title("📱 طابور إرسال الفواتير الشاملة (عبر شريحة SMS)")
+st.write("ربط آلي ببيانات الإكسل عبر كود الفاتورة وتجميع الأصناف والرصيد بضغطة زر.")
 
-# 1. قسم رفع الملفات
-st.subheader("📂 رفع ملفات الفواتير")
-col_file1, col_file2 = st.columns(2)
+# 1. قسم رفع الملفات (Excel و PDF)
+st.subheader("📂 رفع ملفات النظام")
+col_f1, col_f2 = st.columns(2)
 
-with col_file1:
+with col_f1:
     excel_file = st.file_uploader("اختر ملف الفواتير (Excel)", type=["xlsx", "xls"])
 
-with col_file2:
+with col_f2:
     zip_file = st.file_uploader("اختر ملف الـ PDF المضغوط (ZIP - اختياري)", type=["zip"])
 
-# قائمة الفواتير
-invoices_data = []
+# 2. معالجة وتجميع بيانات الإكسل بناءً على كود الفاتورة (العمود الأول)
+invoices_dict = {}
 
 if excel_file is not None:
+    # قراءة الإكسل وضمان قراءة العمود الأول كـ string
     df = pd.read_excel(excel_file)
-    st.success(f"تم تحميل {len(df)} فاتورة من ملف الإكسل بنجاح!")
     
-    for idx, row in df.iterrows():
-        invoices_data.append({
-            "id": str(row.get("رقم الفاتورة", f"INV-{idx+1}")),
-            "customer": str(row.get("اسم العميل", "عميل")),
-            "phone": str(row.get("رقم الهاتف", "")),
-            "items": str(row.get("التفاصيل", "قطع غيار/مستلزمات")),
-            "amount": row.get("المبلغ", 0),
-            "status": "معلق"
-        })
+    # التعرف على أسماء الأعمدة بشكل مرن
+    code_col = df.columns[0]  # العمود الأول دائماً لكود الفاتورة
+    
+    for _, row in df.iterrows():
+        inv_code = str(row[code_col]).strip()
+        
+        # إذا لم تكن الفاتورة مضافة مسبقاً، ننشئ سجلها الأساسي
+        if inv_code not in invoices_dict:
+            invoices_dict[inv_code] = {
+                "code": inv_code,
+                "customer": str(row.get("اسم العميل", row.get("العميل", "عميل"))),
+                "phone": str(row.get("رقم الهاتف", row.get("الهاتف", ""))),
+                "old_balance": row.get("الرصيد السابق", row.get("سابق", 0)),
+                "net_amount": row.get("صافي الفاتورة", row.get("الإجمالي", 0)),
+                "items": []
+            }
+        
+        # تجميع تفاصيل الصنف الحالي وإضافته لقائمة أصناف الفاتورة
+        item_name = row.get("اسم الصنف", row.get("الصنف", ""))
+        qty = row.get("الكمية", "")
+        if pd.notna(item_name) and str(item_name).strip() != "":
+            item_str = f"{item_name} ({qty})" if pd.notna(qty) and qty != "" else f"{item_name}"
+            invoices_dict[inv_code]["items"].append(item_str)
+
+    st.success(f"تم تجميع {len(invoices_dict)} فاتورة مستقلة بنجاح من ملف الإكسل!")
 
 st.divider()
 
-# 2. عرض الطابور والإرسال عبر الشريحة
-if invoices_data:
-    st.subheader("📋 طابور الإرسال السريع (شريحة SIM)")
+# 3. عرض طابور الإرسال وصياغة الرسالة النصية
+if invoices_dict:
+    st.subheader("📋 طابور الفواتير الجاهزة للإرسال")
     
-    for idx, inv in enumerate(invoices_data):
+    for inv_code, inv in invoices_dict.items():
         with st.container():
             c1, c2, c3 = st.columns([3, 4, 3])
             
-            # نص الفاتورة المحدد للرسالة النصية
+            # دمج الأصناف في نص واحد
+            items_text = " ، ".join(inv["items"]) if inv["items"] else "تفاصيل محددة بالنظام"
+            
+            # حساب الرصيد الإجمالي إن وجد
+            try:
+                total_due = float(inv["net_amount"]) + float(inv["old_balance"])
+            except:
+                total_due = inv["net_amount"]
+
+            # صيغة نص الـ SMS الشاملة
             sms_text = (
-                f"فواتير: عزيزي {inv['customer']}، "
-                f"فاتورتك رقم {inv['id']} بمبلغ {inv['amount']} ريال جاهزة. "
-                f"التفاصيل: {inv['items']}."
+                f"فواتير: الأخ {inv['customer']}\n"
+                f"فاتورة رقم: {inv['code']}\n"
+                f"الأصناف: {items_text}\n"
+                f"قيمة الفاتورة: {inv['net_amount']}\n"
+                f"الرصيد السابق: {inv['old_balance']}\n"
+                f"الإجمالي المطلوب: {total_due}\n"
+                f"شكراً لتعاملكم معنا."
             )
             
             with c1:
-                st.markdown(f"**{inv['customer']}** (`{inv['id']}`)")
-                st.caption(f"📞 {inv['phone']} | 💰 {inv['amount']} ريال")
+                st.markdown(f"**العميل:** {inv['customer']}")
+                st.markdown(f"**رقم الفاتورة:** `{inv['code']}`")
+                st.caption(f"📞 {inv['phone']}")
                 
             with c2:
-                st.code(sms_text, language="text")
+                st.text_area("نص الرسالة:", value=sms_text, height=120, key=f"txt_{inv_code}")
                 
             with c3:
-                # تجهيز رابط SMS المباشر لشريحة الهاتف
+                # تجهيز رابط SMS لشريحة الهاتف مباشرة
                 encoded_body = urllib.parse.quote(sms_text)
                 sms_url = f"sms:{inv['phone']}?body={encoded_body}"
                 
-                # زر يفتح تطبيق الرسائل في الهاتف فوراً
                 st.link_button("📲 إرسال عبر الشريحة", sms_url, use_container_width=True)
                 
             st.divider()
 else:
-    st.info("💡 يرجى رفع ملف Excel يحتوي على أعمدة (اسم العميل، رقم الهاتف، رقم الفاتورة، المبلغ، التفاصيل) للبدء.")
+    st.info("💡 قم برفع ملف Excel؛ حيث يُعتمد العمود الأول كـ 'كود الفاتورة' لتجميع الأصناف والرصيد تلقائياً.")
