@@ -1,97 +1,103 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+import zipfile
+import pypdf # مكتبة قراءة PDF (تأكد من إضافتها لـ requirements.txt)
 
-st.set_page_config(page_title="طابور فواتير الشريحة", page_icon="📱", layout="wide")
+st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
 
-st.title("📱 طابور إرسال الفواتير الشاملة (عبر شريحة SMS)")
-st.write("ربط آلي ببيانات الإكسل عبر كود الفاتورة وتجميع الأصناف والرصيد بضغطة زر.")
+st.title("📱 طابور إرسال الفواتير عبر الشريحة")
 
-# 1. قسم رفع الملفات (يقبل جميع صيغ الضغط والإكسل)
-st.subheader("📂 رفع ملفات النظام")
-col_f1, col_f2 = st.columns(2)
+# 1. قسم رفع الملفات
+st.subheader("📂 رفع ملف الإكسل والأرشيف المضغوط")
+col1, col2 = st.columns(2)
 
-with col_f1:
+with col1:
     excel_file = st.file_uploader("اختر ملف الفواتير (Excel)", type=["xlsx", "xls"])
 
-with col_f2:
-    # تم إزالة التقييد بـ zip لتقبل جميع صيغ الملفات المضغوطة (RAR, 7Z, ZIP, TAR...)
-    compressed_file = st.file_uploader("اختر ملف المرفقات المضغوط (جميع الصيغ)", type=None)
+with col2:
+    zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF", type=None)
 
-# 2. معالجة وتجميع بيانات الإكسل بناءً على كود الفاتورة (العمود الأول)
-invoices_dict = {}
+# قاموس لحفظ نصوص ملفات PDF (اسم الملف بدون امتداد -> النص)
+pdf_texts = {}
+
+if zip_file is not None:
+    try:
+        with zipfile.ZipFile(zip_file, 'r') as z:
+            for filename in z.namelist():
+                if filename.lower().endswith('.pdf'):
+                    # استخراج رقم الفاتورة من اسم الملف
+                    clean_name = filename.split('/')[-1].replace('.pdf', '').strip()
+                    with z.open(filename) as pdf_file:
+                        reader = pypdf.PdfReader(pdf_file)
+                        text = ""
+                        for page in reader.pages:
+                            text += page.extract_text() or ""
+                        pdf_texts[clean_name] = text.strip()
+        st.success(f"تم قراءة {len(pdf_texts)} ملف PDF من الأرشيف بنجاح.")
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء قراءة الملف المضغوط: {e}")
+
+invoices_list = []
 
 if excel_file is not None:
     df = pd.read_excel(excel_file)
     
-    # التعرف على العمود الأول لكود الفاتورة
-    code_col = df.columns[0]
-    
+    # الاعتماد على ترتيب الأرقام المباشرة للأعمدة (مع مراعاة الترقيم بـ 0)
     for _, row in df.iterrows():
-        inv_code = str(row[code_col]).strip()
-        
-        if inv_code not in invoices_dict:
-            invoices_dict[inv_code] = {
+        try:
+            inv_code = str(row.iloc[0]).strip() # العمود الأول (رقم الفاتورة)
+            customer = str(row.iloc[5]).strip() # العمود السادس (اسم العميل)
+            phone = str(row.iloc[6]).strip()    # العمود السابع (رقم الهاتف)
+            details = str(row.iloc[7]).strip()  # العمود الثامن (التفاصيل)
+            amount = row.iloc[9]                 # العمود العاشر (مبلغ الفاتورة)
+            balance = row.iloc[10]               # العمود الحادي عشر (الرصيد)
+            
+            # جلب تفاصيل الأصناف والكميات من ملف الـ PDF المطابق
+            pdf_details = pdf_texts.get(inv_code, "لم يتم العثور على ملف PDF المطابق")
+            
+            # صياغة النص المطلوب بدقة
+            sms_text = (
+                f"محلات البوش للتجاره المركز الرئيسي جدر\n"
+                f"الاخ: {customer}\n"
+                f"عليكم فاتوره مبيعات: {details}\n"
+                f"مبلغ الفاتوره: {amount}\n"
+                f"وبهذا يكون الرصيد عليكم: {balance}\n"
+                f"تفاصيل الفاتورة من الـ PDF:\n{pdf_details}"
+            )
+            
+            invoices_list.append({
                 "code": inv_code,
-                "customer": str(row.get("اسم العميل", row.get("العميل", "عميل"))),
-                "phone": str(row.get("رقم الهاتف", row.get("الهاتف", ""))),
-                "old_balance": row.get("الرصيد السابق", row.get("سابق", 0)),
-                "net_amount": row.get("صافي الفاتورة", row.get("الإجمالي", 0)),
-                "items": []
-            }
-        
-        item_name = row.get("اسم الصنف", row.get("الصنف", ""))
-        qty = row.get("الكمية", "")
-        if pd.notna(item_name) and str(item_name).strip() != "":
-            item_str = f"{item_name} ({qty})" if pd.notna(qty) and qty != "" else f"{item_name}"
-            invoices_dict[inv_code]["items"].append(item_str)
+                "customer": customer,
+                "phone": phone,
+                "sms_text": sms_text
+            })
+        except Exception as e:
+            continue
 
-    st.success(f"تم تجميع {len(invoices_dict)} فاتورة مستقلة بنجاح من ملف الإكسل!")
-
-if compressed_file is not None:
-    st.info(f"تم رفع الملف المضغوط: `{compressed_file.name}` بنجاح.")
+    st.success(f"تم تجهيز {len(invoices_list)} فاتورة للإرسال.")
 
 st.divider()
 
-# 3. عرض طابور الإرسال وصياغة الرسالة النصية
-if invoices_dict:
-    st.subheader("📋 طابور الفواتير الجاهزة للإرسال")
+# 2. عرض طابور الفواتير
+if invoices_list:
+    st.subheader("📋 تفاصيل طابور الفواتير")
     
-    for inv_code, inv in invoices_dict.items():
+    for idx, inv in enumerate(invoices_list):
         with st.container():
             c1, c2, c3 = st.columns([3, 4, 3])
-            
-            items_text = " ، ".join(inv["items"]) if inv["items"] else "تفاصيل محددة بالنظام"
-            
-            try:
-                total_due = float(inv["net_amount"]) + float(inv["old_balance"])
-            except:
-                total_due = inv["net_amount"]
-
-            sms_text = (
-                f"فواتير: الأخ {inv['customer']}\n"
-                f"فاتورة رقم: {inv['code']}\n"
-                f"الأصناف: {items_text}\n"
-                f"قيمة الفاتورة: {inv['net_amount']}\n"
-                f"الرصيد السابق: {inv['old_balance']}\n"
-                f"الإجمالي المطلوب: {total_due}\n"
-                f"شكراً لتعاملكم معنا."
-            )
             
             with c1:
                 st.markdown(f"**العميل:** {inv['customer']}")
                 st.markdown(f"**رقم الفاتورة:** `{inv['code']}`")
-                st.caption(f"📞 {inv['phone']}")
+                st.caption(f"📞 الهاتف: {inv['phone']}")
                 
             with c2:
-                st.text_area("نص الرسالة:", value=sms_text, height=120, key=f"txt_{inv_code}")
+                st.text_area("نص الرسالة الجاهزة:", value=inv['sms_text'], height=140, key=f"area_{idx}")
                 
             with c3:
-                encoded_body = urllib.parse.quote(sms_text)
-                sms_url = f"sms:{inv['phone']}?body={encoded_body}"
-                
+                encoded_msg = urllib.parse.quote(inv['sms_text'])
+                sms_url = f"sms:{inv['phone']}?body={encoded_msg}"
                 st.link_button("📲 إرسال عبر الشريحة", sms_url, use_container_width=True)
                 
             st.divider()
-else:
-    st.info("💡 قم برفع ملف Excel والأرشيف المضغوط للبدء.")
