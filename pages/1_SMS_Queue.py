@@ -9,7 +9,7 @@ st.set_page_config(page_title="طابور الفواتير", page_icon="📱", l
 
 st.title("📱 طابور إرسال الفواتير عبر الشريحة")
 
-# 1. قسم رفع الملفات
+# 1. رفع الملفات
 st.subheader("📂 رفع ملف الإكسل والأرشيف المضغوط")
 col1, col2 = st.columns(2)
 
@@ -17,45 +17,70 @@ with col1:
     excel_file = st.file_uploader("اختر ملف الفواتير (Excel)", type=["xlsx", "xls"])
 
 with col2:
-    zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF (صيغة ZIP حقيقية)", type=["zip"])
+    zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF (ZIP)", type=["zip"])
 
-# دالة استخراج الأصناف والكميات من ملف الـ PDF
-def extract_items_from_pdf(pdf_file_obj):
+# دالة ذكية واستثنائية لاستخراج الأصناف والكميات من نصوص الـ PDF سطر بسطر
+def extract_items_from_pdf_text(pdf_file_obj):
     items_list = []
     try:
         with pdfplumber.open(pdf_file_obj) as pdf:
             for page in pdf:
-                # 1. البحث في الجداول أولاً
-                tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        if row and len(row) >= 4:
-                            # البحث عن العمود الذي يحتوي على اسم الصنف والكمية
-                            row_str = [str(cell) for cell in row if cell is not None]
-                            for idx, cell in enumerate(row_str):
-                                # إذا وجدنا قيمة عددية (كمية)
-                                clean_qty = cell.replace('\n', '').strip()
-                                if clean_qty.replace('.', '').isdigit() and float(clean_qty) > 0:
-                                    # نأخذ الخلية المجاوِرة كاسم للصنف
-                                    if idx > 0:
-                                        item_name = row_str[idx-1].replace('\n', ' ').strip()
-                                    elif idx + 1 < len(row_str):
-                                        item_name = row_str[idx+1].replace('\n', ' ').strip()
-                                    else:
-                                        continue
-                                    
-                                    if "اسم الصنف" not in item_name and "الإجمالي" not in item_name and len(item_name) > 3:
-                                        words = item_name.split()
-                                        short_name = " ".join(words[:3]) if len(words) >= 3 else item_name
-                                        try:
-                                            q_num = float(clean_qty)
-                                            clean_qty = str(int(q_num)) if q_num.is_integer() else str(q_num)
-                                        except:
-                                            pass
-                                        items_list.append(f"• {short_name} ({clean_qty})")
-    except Exception:
+                # 1. محاولة القراءة النصية المباشرة (الأسلوب الأضمن للفواتير)
+                text = page.extract_text()
+                if text:
+                    lines = text.split('\n')
+                    for line in lines:
+                        line_clean = line.strip()
+                        # تجاهل العناوين الرئيسية ورؤوس الفواتير
+                        if any(header in line_clean for header in ["محلات", "فاتورة", "التاريخ", "الإجمالي", "اسم العميل", "الرئيسي", "العملة"]):
+                            continue
+                        
+                        # التفتيش عن نمط: رقم كود الصنف أو كلمات تتبعها كمية رقمية
+                        # البحث عن الأرقام التي تمثل الكميات (مثلاً 1 أو 2 أو 10...)
+                        parts = line_clean.split()
+                        if len(parts) >= 2:
+                            # البحث عن أول عنصر عددي يمثل الكمية
+                            for idx, part in enumerate(parts):
+                                clean_part = part.replace(',', '').replace('.00', '').strip()
+                                if clean_part.isdigit() and 1 <= int(clean_part) <= 500:
+                                    # النص المتبقي يعتبر اسم الصنف
+                                    item_words = [p for p in parts if not p.isdigit() and len(p) > 2 and not p.startswith("03-") and not p.startswith("01-") and not p.startswith("07-")]
+                                    if item_words:
+                                        # اقتضاب اسم الصنف لأول 3 كلمات
+                                        short_name = " ".join(item_words[:3])
+                                        items_list.append(f"• {short_name} ({clean_part})")
+                                        break
+
+                # 2. إذا لم ينجح النص، نقرأ من الجداول
+                if not items_list:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        for row in table:
+                            if row and len(row) >= 4:
+                                row_str = [str(cell).strip() for cell in row if cell is not None]
+                                for idx, cell in enumerate(row_str):
+                                    clean_qty = cell.replace('\n', '').strip()
+                                    if clean_qty.replace('.', '').isdigit() and float(clean_qty) > 0 and float(clean_qty) < 500:
+                                        if idx > 0:
+                                            item_name = row_str[idx-1].replace('\n', ' ').strip()
+                                            if len(item_name) > 3 and "اسم" not in item_name and "الإجمالي" not in item_name:
+                                                words = item_name.split()
+                                                short_name = " ".join(words[:3])
+                                                q_val = int(float(clean_qty))
+                                                items_list.append(f"• {short_name} ({q_val})")
+                                                break
+    except Exception as e:
         pass
-    return list(dict.fromkeys(items_list)) # إزالة التكرار
+    
+    # إزالة التكرارات والحفاظ على الترتيب
+    seen = set()
+    unique_items = []
+    for item in items_list:
+        if item not in seen:
+            seen.add(item)
+            unique_items.append(item)
+            
+    return unique_items
 
 pdf_items_dict = {}
 
@@ -66,17 +91,16 @@ if zip_file is not None:
             for filename in z.namelist():
                 if filename.lower().endswith('.pdf') and not filename.startswith('__MACOSX'):
                     pdf_count += 1
-                    # تنظيف اسم الملف لاستخدامه كمفتاح مطابقة
                     clean_name = filename.split('/')[-1].replace('.pdf', '').strip()
                     with z.open(filename) as pdf_file:
-                        extracted = extract_items_from_pdf(pdf_file)
+                        extracted = extract_items_from_pdf_text(pdf_file)
                         if extracted:
                             pdf_items_dict[clean_name] = "\n".join(extracted)
                         else:
-                            pdf_items_dict[clean_name] = "• لم يتم التعرف على الاصناف داخل الجدول"
-            st.success(f"تم قراءة {pdf_count} ملف PDF داخل الأرشيف المضغوط بنجاح.")
+                            pdf_items_dict[clean_name] = "• لم يتم استخراج أصناف"
+            st.success(f"تم تحليل {pdf_count} ملف PDF داخل الأرشيف بنجاح.")
     except Exception as e:
-        st.error("⚠️ ملف ZIP غير صالح. يرجى إعادة ضغط الملفات باستخدام برنامج WinRAR أو ZArchiver واختيار صيغة ZIP.")
+        st.error("⚠️ خطأ في قراءة ملف ZIP.")
 
 def format_number(val):
     try:
@@ -106,16 +130,15 @@ if excel_file is not None:
             amount_formatted = format_number(row.iloc[9])
             balance_formatted = format_number(row.iloc[10])
             
-            # البحث عن الأصناف بواسطة رقم الفاتورة
+            # المطابقة برقم الفاتورة
             items_text = pdf_items_dict.get(inv_code)
             if not items_text:
-                # محاولة المطابقة إذا كان الاسم يحتوي على الرقم جزئياً
                 for k, v in pdf_items_dict.items():
                     if inv_code in k or k in inv_code:
                         items_text = v
                         break
-            if not items_text:
-                items_text = "• لا توجد تفاصيل أصناف"
+            if not items_text or items_text == "• لم يتم استخراج أصناف":
+                items_text = "• راجع الفاتورة المرفقة"
             
             sms_text = (
                 f"محلات البوش للتجاره المركز الرئيسي جدر\n"
