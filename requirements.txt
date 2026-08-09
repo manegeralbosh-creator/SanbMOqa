@@ -9,3 +9,4 @@ pdfplumber
 pymupdf
 google-auth
 rarfile
+pypdf
