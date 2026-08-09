@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 import zipfile
-import pypdf # مكتبة قراءة PDF (تأكد من إضافتها لـ requirements.txt)
+import pypdf
 
 st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
 
@@ -18,15 +18,13 @@ with col1:
 with col2:
     zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF", type=None)
 
-# قاموس لحفظ نصوص ملفات PDF (اسم الملف بدون امتداد -> النص)
+# قراءة نصوص الـ PDF
 pdf_texts = {}
-
 if zip_file is not None:
     try:
         with zipfile.ZipFile(zip_file, 'r') as z:
             for filename in z.namelist():
                 if filename.lower().endswith('.pdf'):
-                    # استخراج رقم الفاتورة من اسم الملف
                     clean_name = filename.split('/')[-1].replace('.pdf', '').strip()
                     with z.open(filename) as pdf_file:
                         reader = pypdf.PdfReader(pdf_file)
@@ -34,35 +32,57 @@ if zip_file is not None:
                         for page in reader.pages:
                             text += page.extract_text() or ""
                         pdf_texts[clean_name] = text.strip()
-        st.success(f"تم قراءة {len(pdf_texts)} ملف PDF من الأرشيف بنجاح.")
+        st.success(f"تم قراءة {len(pdf_texts)} ملف PDF بنجاح.")
     except Exception as e:
-        st.error(f"حدث خطأ أثناء قراءة الملف المضغوط: {e}")
+        st.error(f"خطأ أثناء قراءة الملف المضغوط: {e}")
+
+# دالة تنسيق المبالغ وإزالة الأصفار بعد البوينت مع إضافة الفواصل
+def format_number(val):
+    try:
+        num = float(val)
+        # إذا كان الرقم صحيحاً يتم تجريده من الأصفار بعد البوينت
+        if num.is_integer():
+            return f"{int(num):,}"
+        else:
+            return f"{num:,.2f}".rstrip('0').rstrip('.')
+    except:
+        return str(val)
 
 invoices_list = []
 
 if excel_file is not None:
     df = pd.read_excel(excel_file)
     
-    # الاعتماد على ترتيب الأرقام المباشرة للأعمدة (مع مراعاة الترقيم بـ 0)
     for _, row in df.iterrows():
         try:
             inv_code = str(row.iloc[0]).strip() # العمود الأول (رقم الفاتورة)
-            customer = str(row.iloc[5]).strip() # العمود السادس (اسم العميل)
-            phone = str(row.iloc[6]).strip()    # العمود السابع (رقم الهاتف)
-            details = str(row.iloc[7]).strip()  # العمود الثامن (التفاصيل)
-            amount = row.iloc[9]                 # العمود العاشر (مبلغ الفاتورة)
-            balance = row.iloc[10]               # العمود الحادي عشر (الرصيد)
             
-            # جلب تفاصيل الأصناف والكميات من ملف الـ PDF المطابق
+            # العمود الخامس (العملة)
+            raw_currency = str(row.iloc[4]).strip().upper()
+            if raw_currency == "SR":
+                currency = "ريال سعودي"
+            elif raw_currency == "YR":
+                currency = "ريال يمني"
+            else:
+                currency = raw_currency
+            
+            customer = str(row.iloc[5]).strip()        # العمود السادس (اسم العميل)
+            phone = str(row.iloc[6]).strip()           # العمود السابع (رقم الهاتف)
+            details = str(row.iloc[7]).strip()         # العمود الثامن (التفاصيل)
+            
+            amount_formatted = format_number(row.iloc[9])   # العمود العاشر (المبلغ)
+            balance_formatted = format_number(row.iloc[10]) # العمود الحادي عشر (الرصيد)
+            
+            # تفاصيل الـ PDF
             pdf_details = pdf_texts.get(inv_code, "لم يتم العثور على ملف PDF المطابق")
             
-            # صياغة النص المطلوب بدقة
+            # صياغة الرسالة النهائية
             sms_text = (
                 f"محلات البوش للتجاره المركز الرئيسي جدر\n"
                 f"الاخ: {customer}\n"
                 f"عليكم فاتوره مبيعات: {details}\n"
-                f"مبلغ الفاتوره: {amount}\n"
-                f"وبهذا يكون الرصيد عليكم: {balance}\n"
+                f"مبلغ الفاتوره: {amount_formatted} {currency}\n"
+                f"وبهذا يكون الرصيد عليكم: {balance_formatted} {currency}\n"
                 f"تفاصيل الفاتورة من الـ PDF:\n{pdf_details}"
             )
             
@@ -93,7 +113,7 @@ if invoices_list:
                 st.caption(f"📞 الهاتف: {inv['phone']}")
                 
             with c2:
-                st.text_area("نص الرسالة الجاهزة:", value=inv['sms_text'], height=140, key=f"area_{idx}")
+                st.text_area("نص الرسالة الجاهزة:", value=inv['sms_text'], height=150, key=f"area_{idx}")
                 
             with c3:
                 encoded_msg = urllib.parse.quote(inv['sms_text'])
