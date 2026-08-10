@@ -10,3 +10,4 @@ pymupdf
 google-auth
 rarfile
 pypdf
+easyocr
