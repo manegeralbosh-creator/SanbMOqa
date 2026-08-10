@@ -2,32 +2,13 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 import zipfile
+import pypdf
 import io
 import re
-from PIL import Image
 
-# استخدام pypdf و pdf2image أو fitz لقراءة الـ PDF كصورة
-try:
-    import fitz  # PyMuPDF تحويل سريع لـ PDF إلى صورة
-    HAS_FITZ = True
-except ImportError:
-    HAS_FITZ = False
+st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
 
-try:
-    import easyocr
-    import numpy as np
-    # تحميل محرك التعرف الضوئي للغة العربية والإنجليزي
-    @st.cache_resource
-    def load_ocr_reader():
-        return easyocr.Reader(['ar', 'en'], gpu=False)
-    reader = load_ocr_reader()
-    HAS_OCR = True
-except ImportError:
-    HAS_OCR = False
-
-st.set_page_config(page_title="طابور الفواتير - OCR", page_icon="📱", layout="wide")
-
-st.title("📱 طابور إرسال الفواتير عبر الشريحة (مع تقنية استخراج الصور)")
+st.title("📱 طابور إرسال الفواتير عبر الشريحة")
 
 # 1. قسم رفع الملفات
 st.subheader("📂 رفع ملف الإكسل والأرشيف المضغوط")
@@ -39,46 +20,36 @@ with col1:
 with col2:
     zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF (ZIP)", type=["zip"])
 
-def process_pdf_bytes_to_items(pdf_bytes):
+def extract_items_from_pdf_stream(pdf_bytes):
     items_list = []
-    
-    # تحويل الـ PDF إلى صور
-    images = []
-    if HAS_FITZ:
-        try:
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            for page in doc:
-                pix = page.get_pixmap(dpi=150)
-                img = Image.open(io.BytesIO(pix.tobytes()))
-                images.append(img)
-        except Exception:
-            pass
-
-    # إذا توفرت مكتبة EasyOCR وتم استخراج الصور
-    if HAS_OCR and images:
-        for img in images:
-            img_np = np.array(img)
-            results = reader.readtext(img_np)
-            
-            # تجميع النصوص المستخرجة
-            extracted_lines = [res[1] for res in results]
-            
-            for line in extracted_lines:
-                line_clean = line.strip()
-                # تجاهل العناوين والرؤوس
-                if any(kw in line_clean for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ"]):
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        full_text = ""
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                full_text += t + "\n"
+        
+        if full_text:
+            lines = full_text.split("\n")
+            for line in lines:
+                line_str = line.strip()
+                # استبعاد العناوين والترويسات
+                if any(kw in line_str for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ", "المبلغ"]):
                     continue
-                
-                parts = line_clean.split()
+                parts = line_str.split()
                 if len(parts) >= 2:
                     for part in parts:
-                        clean_p = re.sub(r'\D', '', part)
-                        if clean_p.isdigit() and 1 <= int(clean_p) <= 500:
-                            name_words = [p for p in parts if not re.sub(r'\D', '', p).isdigit() and len(p) > 2]
-                            if name_words:
-                                short_name = " ".join(name_words[:3])
+                        clean_p = part.replace(',', '').replace('.00', '')
+                        if clean_p.isdigit() and 1 <= int(clean_p) <= 1000:
+                            name_parts = [p for p in parts if not p.isdigit() and len(p) > 2]
+                            if name_parts:
+                                short_name = " ".join(name_parts[:3])
                                 items_list.append(f"• {short_name} ({clean_p})")
                                 break
+    except Exception:
+        pass
+    
     return list(dict.fromkeys(items_list))
 
 pdf_items_dict = {}
@@ -90,18 +61,22 @@ if zip_file is not None:
             for filename in z.namelist():
                 if filename.lower().endswith('.pdf') and not filename.startswith('__MACOSX'):
                     pdf_count += 1
-                    clean_name = filename.split('/')[-1].replace('.pdf', '').replace('.PDF', '').strip()
-                    pdf_bytes = z.read(filename)
                     
-                    extracted = process_pdf_bytes_to_items(pdf_bytes)
+                    # استخراج الأرقام فقط من اسم الملف (حذف DOCSER_ و .pdf)
+                    file_basename = filename.split('/')[-1]
+                    digits_only = re.sub(r'\D', '', file_basename) # يحول DOCSER_100110429774.pdf إلى 100110429774
+                    
+                    pdf_bytes = z.read(filename)
+                    extracted = extract_items_from_pdf_stream(pdf_bytes)
+                    
                     if extracted:
-                        pdf_items_dict[clean_name] = "\n".join(extracted)
+                        pdf_items_dict[digits_only] = "\n".join(extracted)
                     else:
-                        pdf_items_dict[clean_name] = "• التفاصيل حسب الفاتورة المرفقة"
+                        pdf_items_dict[digits_only] = "• راجع الفاتورة المرفقة"
                         
-            st.success(f"✅ تم معالجة وتحليل {pdf_count} ملف PDF بالصور والذكاء الاصطناعي بنجاح.")
+            st.success(f"✅ تم التعرف على {pdf_count} ملف PDF داخل الأرشيف وإزالة بادئة (DOCSER_).")
     except Exception as e:
-        st.error(f"⚠️ خطأ أثناء قراءة الملفات: {e}")
+        st.error(f"❌ خطأ أثناء فتح ملف الـ ZIP: {e}")
 
 def format_number(val):
     try:
@@ -119,7 +94,9 @@ if excel_file is not None:
     df = pd.read_excel(excel_file)
     for _, row in df.iterrows():
         try:
-            inv_code = str(row.iloc[0]).strip()
+            # تنظيف رقم الفاتورة من أي أشكال أو رموز للربط المباشر
+            raw_inv = str(row.iloc[0]).strip()
+            inv_code = re.sub(r'\D', '', raw_inv)
             
             raw_currency = str(row.iloc[4]).strip().upper()
             currency = "ريال سعودي" if raw_currency == "SR" else ("ريال يمني" if raw_currency == "YR" else raw_currency)
@@ -131,14 +108,11 @@ if excel_file is not None:
             amount_formatted = format_number(row.iloc[9])
             balance_formatted = format_number(row.iloc[10])
             
-            items_text = None
-            for key_name, text_val in pdf_items_dict.items():
-                if inv_code == key_name or inv_code in key_name or key_name in inv_code:
-                    items_text = text_val
-                    break
+            # المطابقة باستخدام الرقم الصافي
+            items_text = pdf_items_dict.get(inv_code)
             
             if not items_text:
-                items_text = "• التفاصيل حسب الفاتورة المرفقة"
+                items_text = "• راجع الفاتورة المرفقة"
             
             sms_text = (
                 f"محلات البوش للتجاره المركز الرئيسي جدر\n"
