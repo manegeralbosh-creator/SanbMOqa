@@ -20,39 +20,41 @@ with col1:
 with col2:
     zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF (ZIP)", type=["zip"])
 
-def extract_items_from_pdf_stream(pdf_bytes):
+def extract_raw_and_clean_items(pdf_bytes):
+    raw_text_debug = ""
     items_list = []
     try:
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        full_text = ""
         for page in reader.pages:
             t = page.extract_text()
             if t:
-                full_text += t + "\n"
+                raw_text_debug += t + "\n--- نهاية الصفحة ---\n"
         
-        if full_text:
-            lines = full_text.split("\n")
+        if raw_text_debug:
+            lines = raw_text_debug.split("\n")
             for line in lines:
                 line_str = line.strip()
-                # استبعاد العناوين والترويسات
-                if any(kw in line_str for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ", "المبلغ"]):
+                # تجنب السطور الفارغة والكلمات الثابتة في الفاتورة
+                if not line_str or len(line_str) < 3:
                     continue
+                if any(kw in line_str for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ", "المبلغ", "الصافي", "العنوان", "الهاتف"]):
+                    continue
+                
+                # استخراج أي سطر يحتوي على كلمات مع أرقام كأصناف
                 parts = line_str.split()
-                if len(parts) >= 2:
-                    for part in parts:
-                        clean_p = part.replace(',', '').replace('.00', '')
-                        if clean_p.isdigit() and 1 <= int(clean_p) <= 1000:
-                            name_parts = [p for p in parts if not p.isdigit() and len(p) > 2]
-                            if name_parts:
-                                short_name = " ".join(name_parts[:3])
-                                items_list.append(f"• {short_name} ({clean_p})")
-                                break
-    except Exception:
-        pass
+                if len(parts) >= 1:
+                    # تنظيف السطر وإضافته للقائمة
+                    clean_line = " ".join(parts[:5]) # أخذ أول 5 كلمات من السطر
+                    items_list.append(f"• {clean_line}")
+                    
+    except Exception as e:
+        raw_text_debug = f"خطأ في القراءة: {e}"
     
-    return list(dict.fromkeys(items_list))
+    # إزالة التكرار
+    unique_items = list(dict.fromkeys(items_list))
+    return raw_text_debug, unique_items
 
-pdf_items_dict = {}
+pdf_data_dict = {}
 
 if zip_file is not None:
     try:
@@ -61,20 +63,18 @@ if zip_file is not None:
             for filename in z.namelist():
                 if filename.lower().endswith('.pdf') and not filename.startswith('__MACOSX'):
                     pdf_count += 1
-                    
-                    # استخراج الأرقام فقط من اسم الملف (حذف DOCSER_ و .pdf)
                     file_basename = filename.split('/')[-1]
-                    digits_only = re.sub(r'\D', '', file_basename) # يحول DOCSER_100110429774.pdf إلى 100110429774
+                    digits_only = re.sub(r'\D', '', file_basename)
                     
                     pdf_bytes = z.read(filename)
-                    extracted = extract_items_from_pdf_stream(pdf_bytes)
+                    raw_debug, extracted_items = extract_raw_and_clean_items(pdf_bytes)
                     
-                    if extracted:
-                        pdf_items_dict[digits_only] = "\n".join(extracted)
-                    else:
-                        pdf_items_dict[digits_only] = "• راجع الفاتورة المرفقة"
+                    pdf_data_dict[digits_only] = {
+                        "items_text": "\n".join(extracted_items) if extracted_items else "• راجع الفاتورة المرفقة",
+                        "raw_debug": raw_debug if raw_debug else "لم يتم استخراج أي نص خام من الملف (قد تكون الفاتورة عبارة عن صورة ممسوحة ضوئياً)."
+                    }
                         
-            st.success(f"✅ تم التعرف على {pdf_count} ملف PDF داخل الأرشيف وإزالة بادئة (DOCSER_).")
+            st.success(f"✅ تم معالجة {pdf_count} ملف PDF بنجاح.")
     except Exception as e:
         st.error(f"❌ خطأ أثناء فتح ملف الـ ZIP: {e}")
 
@@ -94,7 +94,6 @@ if excel_file is not None:
     df = pd.read_excel(excel_file)
     for _, row in df.iterrows():
         try:
-            # تنظيف رقم الفاتورة من أي أشكال أو رموز للربط المباشر
             raw_inv = str(row.iloc[0]).strip()
             inv_code = re.sub(r'\D', '', raw_inv)
             
@@ -108,11 +107,10 @@ if excel_file is not None:
             amount_formatted = format_number(row.iloc[9])
             balance_formatted = format_number(row.iloc[10])
             
-            # المطابقة باستخدام الرقم الصافي
-            items_text = pdf_items_dict.get(inv_code)
-            
-            if not items_text:
-                items_text = "• راجع الفاتورة المرفقة"
+            pdf_info = pdf_data_dict.get(inv_code, {
+                "items_text": "• راجع الفاتورة المرفقة",
+                "raw_debug": "لم يتم العثور على ملف PDF مطليق لهذا الرقم."
+            })
             
             sms_text = (
                 f"محلات البوش للتجاره المركز الرئيسي جدر\n"
@@ -121,9 +119,15 @@ if excel_file is not None:
                 f"مبلغ الفاتوره: {amount_formatted} {currency}\n"
                 f"وبهذا يكون الرصيد عليكم: {balance_formatted} {currency}\n"
                 f"التفاصيل:\n"
-                f"{items_text}"
+                f"{pdf_info['items_text']}"
             )
-            invoices_list.append({"code": inv_code, "customer": customer, "phone": phone, "sms_text": sms_text})
+            invoices_list.append({
+                "code": inv_code, 
+                "customer": customer, 
+                "phone": phone, 
+                "sms_text": sms_text,
+                "raw_debug": pdf_info['raw_debug']
+            })
         except Exception:
             continue
             
@@ -142,6 +146,8 @@ if invoices_list:
                 st.caption(f"📞 الهاتف: {inv['phone']}")
             with c2:
                 st.text_area("نص الرسالة الجاهزة:", value=inv['sms_text'], height=180, key=f"area_{idx}")
+                with st.expander("🔍 معاينة النص الخام المستخرج من الـ PDF"):
+                    st.code(inv['raw_debug'], language="text")
             with c3:
                 encoded_msg = urllib.parse.quote(inv['sms_text'])
                 sms_url = f"sms:{inv['phone']}?body={encoded_msg}"
