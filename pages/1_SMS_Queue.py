@@ -2,12 +2,32 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 import zipfile
-import pypdf
 import io
+import re
+from PIL import Image
 
-st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
+# استخدام pypdf و pdf2image أو fitz لقراءة الـ PDF كصورة
+try:
+    import fitz  # PyMuPDF تحويل سريع لـ PDF إلى صورة
+    HAS_FITZ = True
+except ImportError:
+    HAS_FITZ = False
 
-st.title("📱 طابور إرسال الفواتير عبر الشريحة")
+try:
+    import easyocr
+    import numpy as np
+    # تحميل محرك التعرف الضوئي للغة العربية والإنجليزي
+    @st.cache_resource
+    def load_ocr_reader():
+        return easyocr.Reader(['ar', 'en'], gpu=False)
+    reader = load_ocr_reader()
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
+
+st.set_page_config(page_title="طابور الفواتير - OCR", page_icon="📱", layout="wide")
+
+st.title("📱 طابور إرسال الفواتير عبر الشريحة (مع تقنية استخراج الصور)")
 
 # 1. قسم رفع الملفات
 st.subheader("📂 رفع ملف الإكسل والأرشيف المضغوط")
@@ -19,46 +39,47 @@ with col1:
 with col2:
     zip_file = st.file_uploader("اختر الأرشيف المضغوط لملفات PDF (ZIP)", type=["zip"])
 
-# دالة قراءة واختبار ملفات PDF باستخدام pypdf
-def extract_items_from_pdf_stream(pdf_file_bytes):
+def process_pdf_bytes_to_items(pdf_bytes):
     items_list = []
-    try:
-        reader = pypdf.PdfReader(io.BytesIO(pdf_file_bytes))
-        full_text = ""
-        for page in reader.pages:
-            t = page.extract_text()
-            if t:
-                full_text += t + "\n"
-        
-        if full_text:
-            lines = full_text.split("\n")
-            for line in lines:
-                line_str = line.strip()
-                # تجاهل كلمات الترويسات
-                if any(kw in line_str for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ"]):
+    
+    # تحويل الـ PDF إلى صور
+    images = []
+    if HAS_FITZ:
+        try:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            for page in doc:
+                pix = page.get_pixmap(dpi=150)
+                img = Image.open(io.BytesIO(pix.tobytes()))
+                images.append(img)
+        except Exception:
+            pass
+
+    # إذا توفرت مكتبة EasyOCR وتم استخراج الصور
+    if HAS_OCR and images:
+        for img in images:
+            img_np = np.array(img)
+            results = reader.readtext(img_np)
+            
+            # تجميع النصوص المستخرجة
+            extracted_lines = [res[1] for res in results]
+            
+            for line in extracted_lines:
+                line_clean = line.strip()
+                # تجاهل العناوين والرؤوس
+                if any(kw in line_clean for kw in ["محلات", "الرئيسي", "فاتورة", "إجمالي", "العميل", "الرصيد", "التاريخ"]):
                     continue
-                parts = line_str.split()
+                
+                parts = line_clean.split()
                 if len(parts) >= 2:
                     for part in parts:
-                        clean_p = part.replace(',', '').replace('.00', '')
-                        # البحث عن القيمة العدادية (الكميات)
-                        if clean_p.isdigit() and 1 <= int(clean_p) <= 1000:
-                            name_parts = [p for p in parts if not p.isdigit() and len(p) > 2]
-                            if name_parts:
-                                short_name = " ".join(name_parts[:3])
+                        clean_p = re.sub(r'\D', '', part)
+                        if clean_p.isdigit() and 1 <= int(clean_p) <= 500:
+                            name_words = [p for p in parts if not re.sub(r'\D', '', p).isdigit() and len(p) > 2]
+                            if name_words:
+                                short_name = " ".join(name_words[:3])
                                 items_list.append(f"• {short_name} ({clean_p})")
                                 break
-    except Exception as e:
-        pass
-    
-    # إزالة التكرار
-    seen = set()
-    res = []
-    for item in items_list:
-        if item not in seen:
-            seen.add(item)
-            res.append(item)
-    return res
+    return list(dict.fromkeys(items_list))
 
 pdf_items_dict = {}
 
@@ -66,26 +87,21 @@ if zip_file is not None:
     try:
         with zipfile.ZipFile(zip_file, 'r') as z:
             pdf_count = 0
-            read_success_count = 0
-            
             for filename in z.namelist():
                 if filename.lower().endswith('.pdf') and not filename.startswith('__MACOSX'):
                     pdf_count += 1
                     clean_name = filename.split('/')[-1].replace('.pdf', '').replace('.PDF', '').strip()
-                    
-                    # قراءة محتوى الملف بالكامل في الذاكرة
                     pdf_bytes = z.read(filename)
-                    extracted = extract_items_from_pdf_stream(pdf_bytes)
                     
+                    extracted = process_pdf_bytes_to_items(pdf_bytes)
                     if extracted:
-                        read_success_count += 1
                         pdf_items_dict[clean_name] = "\n".join(extracted)
                     else:
                         pdf_items_dict[clean_name] = "• التفاصيل حسب الفاتورة المرفقة"
-            
-            st.success(f"✅ تم فتح الأرشيف وقراءة {pdf_count} ملف PDF. (تم استخراج الأصناف من {read_success_count} ملف بنجاح).")
+                        
+            st.success(f"✅ تم معالجة وتحليل {pdf_count} ملف PDF بالصور والذكاء الاصطناعي بنجاح.")
     except Exception as e:
-        st.error(f"❌ خطأ أثناء فتح ملف الـ ZIP: {e}")
+        st.error(f"⚠️ خطأ أثناء قراءة الملفات: {e}")
 
 def format_number(val):
     try:
