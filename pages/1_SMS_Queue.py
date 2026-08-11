@@ -33,7 +33,7 @@ def extract_clean_number(text):
 def clean_arabic_words(text):
     if not text:
         return ""
-    # عكس السطر بالكامل لتصحيح تشفير أونكس برو المعكوس
+    # عكس السطر بالكامل لتصحيح تشفير أونكس برو
     fixed_line = str(text)[::-1]
     arabic_words = re.findall(r"[\u0600-\u06FF]+", fixed_line)
     clean_words = [w for w in arabic_words if len(w) > 1]
@@ -42,7 +42,6 @@ def clean_arabic_words(text):
 
 
 def format_quantity(qty_str):
-    """تنسيق الكمية للأعداد الصحيحة والعشرية"""
     try:
         val = float(qty_str)
         if val.is_integer():
@@ -55,11 +54,14 @@ def format_quantity(qty_str):
 def parse_pdf_content(pdf_bytes):
     items_formatted = []
 
+    # قائمة استبعاد شاملة ومحكمة للترويسات والإجماليات والتفقيط
     ignore_keywords = [
         "البوش",
         "الرئيسي",
         "فاتورة",
+        "الفاتورة",
         "إجمالي",
+        "جمالي",
         "العميل",
         "الرصيد",
         "التاريخ",
@@ -78,11 +80,13 @@ def parse_pdf_content(pdf_bytes):
         "الكمية",
         "السعر",
         "الخصم",
-        "جمالي",
-        "اسم العميل",
-        "رقم الصنف",
+        "مصنع",
+        "خمسمائة",
+        "سبعة",
         "ريال",
         "سعودي",
+        "يمني",
+        "رقم",
         "Onyx",
     ]
 
@@ -98,27 +102,40 @@ def parse_pdf_content(pdf_bytes):
                     if not line_str or len(line_str) < 3:
                         continue
 
-                    # استبعاد أسطر العناوين والإجماليات
-                    if any(kw in line_str for kw in ignore_keywords):
-                        continue
+                    # تصحيح النص المعكوس أولاً
+                    reversed_line = line_str[::-1]
 
-                    # استخراج وتنظيف اسم الصنف
-                    item_name = clean_arabic_words(line_str)
-
-                    # استبعاد المسميات الإدارية التي قد تفلت من الفلترة
-                    if not item_name or any(
-                        kw in item_name
-                        for kw in ["العميل", "مصنع", "الخصم", "رقم الصنف"]
+                    # فحص الاستبعاد على السطرين (الأصلي والمعكوس)
+                    if any(
+                        kw in line_str or kw in reversed_line
+                        for kw in ignore_keywords
                     ):
                         continue
 
-                    # الشرط الخاص: فحص ما إذا كان الصنف قماش أو طقم قماش
+                    # استخراج وتصحيح اسم الصنف
+                    item_name = clean_arabic_words(line_str)
+
+                    # استبعاد إضافي في حال تسربت كلمة إدارية داخل اسم الصنف
+                    if not item_name or any(
+                        kw in item_name
+                        for kw in [
+                            "الفاتورة",
+                            "المخازن",
+                            "المبيعات",
+                            "المحاسب",
+                            "جمالي",
+                            "خمسمائة",
+                            "سعودي",
+                        ]
+                    ):
+                        continue
+
+                    # الشرط المتفق عليه: فحص القماش والطقوم فقط للكمية
                     is_fabric_item = any(
                         kw in item_name for kw in ["قماش", "طقم"]
                     )
 
                     if is_fabric_item:
-                        # استخراج الكمية (صحيحة أو عشرية أقل من 100)
                         numbers = re.findall(r"\b\d+(?:\.\d+)?\b", line_str)
                         possible_qtys = [
                             n for n in numbers if float(n) < 100
@@ -130,13 +147,12 @@ def parse_pdf_content(pdf_bytes):
                         else:
                             items_formatted.append(f"• {item_name}")
                     else:
-                        # الأصناف العادية بدون إظهار كميات
+                        # الأصناف العادية بدون أرقام
                         items_formatted.append(f"• {item_name}")
 
     except Exception:
         pass
 
-    # إزالة التكرارات مع الحفاظ على الترتيب
     unique_items = list(dict.fromkeys(items_formatted))
     return (
         "\n".join(unique_items) if unique_items else "• راجع الفاتورة المرفقة"
