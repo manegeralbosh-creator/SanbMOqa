@@ -4,7 +4,6 @@ import urllib.parse
 import zipfile
 import pandas as pd
 import pdfplumber
-import pypdf
 import streamlit as st
 
 st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
@@ -26,25 +25,36 @@ with col2:
 
 
 def extract_clean_number(text):
-    """استخراج الأرقام المجردة فقط"""
     if not text:
         return ""
     return re.sub(r"\D", "", str(text))
 
 
-def reverse_string_correctly(text):
-    """عكس النص بالكامل لفك تشفير حروف أونكس برو المعكوسة"""
+def clean_arabic_words(text):
     if not text:
         return ""
-    # عكس السطر حرفاً بحرف لإرجاع الكلمات العربية لأصلها
-    return text[::-1]
+    # عكس السطر بالكامل لتصحيح تشفير أونكس برو
+    fixed_line = str(text)[::-1]
+    arabic_words = re.findall(r"[\u0600-\u06FF]+", fixed_line)
+    clean_words = [w for w in arabic_words if len(w) > 1]
+    # أخذ أول 1 إلى 3 كلمات فقط
+    return " ".join(clean_words[:3])
+
+
+def format_quantity(qty_str):
+    """تنسيق الكمية سواء كانت صحيحة أو عشرية (مثل 0.75، 1.25، 2)"""
+    try:
+        val = float(qty_str)
+        if val.is_integer():
+            return str(int(val))
+        return f"{val:.2f}".rstrip("0").rstrip(".")
+    except:
+        return qty_str.strip()
 
 
 def parse_pdf_content(pdf_bytes):
-    """استخراج الكميات وأسماء الأصناف بعد فك المعكوس الحرفي"""
     items_formatted = []
 
-    # الكلمات المفتاحية التي يجب استبعادها (سواءً أصلية أو معكوسة)
     ignore_keywords = [
         "البوش",
         "الرئيسي",
@@ -68,81 +78,89 @@ def parse_pdf_content(pdf_bytes):
         "الكمية",
         "السعر",
         "الخصم",
-        "فنصلا",
-        "ةيمكلا",
-        "ةدحوا",
-        "ارعسلا",
-        "يلامج",
-        "مصخلا",
+        "ريال",
+        "سعودي",
         "Onyx",
     ]
 
     try:
-        # المحاولة الأولى باستخدام pdfplumber للجداول
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            full_text = ""
             for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    full_text += t + "\n"
+                # استخراج الجدول مباشرة للتعامل مع الأعمدة المحددة
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        if not row or len(row) < 3:
+                            continue
 
-        if not full_text.strip():
-            # محاولة احتياطية باستخدام pypdf
-            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-            for page in reader.pages:
-                t = page.extract_text()
-                if t:
-                    full_text += t + "\n"
+                        # دمج جميع أجزاء السطر للفحص
+                        row_text = " ".join(
+                            [str(cell) for cell in row if cell]
+                        )
+                        if any(kw in row_text for kw in ignore_keywords):
+                            continue
 
-        lines = full_text.split("\n")
-        for line in lines:
-            raw_line = line.strip()
-            if not raw_line or len(raw_line) < 3:
-                continue
+                        # استخراج اسم الصنف من الخلايا التي تحتوي نصوص عربية
+                        item_name = clean_arabic_words(row_text)
+                        if not item_name:
+                            continue
 
-            # تصحيح النص المعكوس حرفياً
-            fixed_line = reverse_string_correctly(raw_line)
+                        # البحث عن الأرقام (صحيحة أو عشرية) داخل خلايا السطر
+                        # تشمل الكسور مثل 0.75, 1.25, 2.5
+                        numbers = re.findall(r"\b\d+(?:\.\d+)?\b", row_text)
 
-            # فحص الاستبعاد
-            if any(kw in raw_line or kw in fixed_line for kw in ignore_keywords):
-                continue
+                        qty = ""
+                        if numbers:
+                            # فلترة الأرقام لتحديد رقم الكمية وتجاهل الأرقام الكبيرة (المبالغ)
+                            possible_qtys = [
+                                n for n in numbers if float(n) < 100
+                            ]
+                            if possible_qtys:
+                                qty = format_quantity(possible_qtys[0])
 
-            # استخراج الألفاظ العربية فقط بعد تصحيح النص
-            arabic_words = re.findall(r"[\u0600-\u06FF]+", fixed_line)
+                        if qty:
+                            items_formatted.append(f"{qty}/{item_name}")
+                        else:
+                            items_formatted.append(f"• {item_name}")
 
-            # تصفية الكلمات المشوهة أو القصيرة جداً
-            clean_arabic = [w for w in arabic_words if len(w) > 1]
+                # طريقة احتياطية في حال لم يتم استخراج الجدول كـ Table هيكلي
+                if not items_formatted:
+                    text = page.extract_text()
+                    if text:
+                        for line in text.split("\n"):
+                            line_str = line.strip()
+                            if not line_str or any(
+                                kw in line_str for kw in ignore_keywords
+                            ):
+                                continue
 
-            if not clean_arabic:
-                continue
+                            item_name = clean_arabic_words(line_str)
+                            if not item_name:
+                                continue
 
-            # أخذ أول 1 إلى 3 كلمات فقط كاسم للصنف
-            item_name = " ".join(clean_arabic[:3])
+                            # البحث عن الأرقام العشرية والصحيحة
+                            numbers = re.findall(
+                                r"\b\d+(?:\.\d+)?\b", line_str
+                            )
+                            possible_qtys = [
+                                n for n in numbers if float(n) < 100
+                            ]
 
-            # استخراج الكمية (رقم صحيحة أو عشري)
-            qty_match = re.search(r"(\b\d+(\.\d+)?\b)", raw_line)
-            qty = qty_match.group(1) if qty_match else ""
-
-            if qty and "." in qty and float(qty).is_integer():
-                qty = str(int(float(qty)))
-
-            if item_name:
-                if qty:
-                    items_formatted.append(f"{qty}/{item_name}")
-                else:
-                    items_formatted.append(f"• {item_name}")
+                            if possible_qtys:
+                                qty = format_quantity(possible_qtys[0])
+                                items_formatted.append(f"{qty}/{item_name}")
+                            else:
+                                items_formatted.append(f"• {item_name}")
 
     except Exception:
         pass
 
-    # إزالة التكرارات
     unique_items = list(dict.fromkeys(items_formatted))
     return (
         "\n".join(unique_items) if unique_items else "• راجع الفاتورة المرفقة"
     )
 
 
-# قاموس تخزين البيانات
 pdf_catalog = {}
 
 if zip_file is not None:
