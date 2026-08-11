@@ -25,15 +25,36 @@ with col2:
 
 
 def extract_clean_number(text):
-    """استخراج الأرقام فقط من أي نص أو اسم ملف"""
+    """استخراج الأرقام المجردة فقط"""
     if not text:
         return ""
     return re.sub(r"\D", "", str(text))
 
 
+def clean_arabic_words(text):
+    """إصلاح النص العربي المعكوس وتنظيفه"""
+    if not text:
+        return ""
+    words = text.split()
+    fixed_words = []
+    for w in words:
+        # إصلاح اتجاه الحروف للكلمات العربية
+        if re.search(r"[\u0600-\u06FF]", w):
+            fixed_words.append(w[::-1])
+        else:
+            fixed_words.append(w)
+
+    # إعادة ترتيب الكلمات وتصفية النصوص العربية فقط
+    full_str = " ".join(fixed_words[::-1])
+    arabic_words = re.findall(r"[\u0600-\u06FF]+", full_str)
+
+    # أخذ أول 3 كلمات فقط (أو كلمة/كلمتين إن وجد)
+    return " ".join(arabic_words[:3])
+
+
 def parse_pdf_content(pdf_bytes):
-    """استخراج الأصناف والكميات مع فك النص العربي المعكوس"""
-    extracted_lines = []
+    """استخراج الكمية واسم الصنف بتنسيق (الكمية/ اسم الصنف)"""
+    items_formatted = []
     try:
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
         raw_text = ""
@@ -42,14 +63,13 @@ def parse_pdf_content(pdf_bytes):
             if t:
                 raw_text += t + "\n"
 
-        # تقسيم النص لأسطر معالجة
         lines = raw_text.split("\n")
         for line in lines:
             line_str = line.strip()
             if not line_str or len(line_str) < 3:
                 continue
 
-            # تصفية أسطر الهيدر والفوتر والبيانات الإدارية
+            # استبعاد الأسطر الإدارية والإجماليات
             if any(
                 kw in line_str
                 for kw in [
@@ -76,28 +96,31 @@ def parse_pdf_content(pdf_bytes):
             ):
                 continue
 
-            # تصحيح ترتيب الكلمات والحروف العربية المعكوسة
-            words = line_str.split()
-            fixed_words = []
-            for w in words:
-                if re.search(r"[\u0600-\u06FF]", w):
-                    fixed_words.append(w[::-1])
+            # استخراج الكمية أولاً (تبحث عن رقم صحيح أو عشري للكمية)
+            qty_match = re.search(r"(\b\d+(\.\d+)?\b)", line_str)
+            qty = qty_match.group(1) if qty_match else ""
+
+            # تحويل الكمية إلى رقم صحيح إذا لم تكن تحتوي كسر
+            if qty and "." in qty and float(qty).is_integer():
+                qty = str(int(float(qty)))
+
+            # استخراج وتنظيم كلمات اسم الصنف (أول 1 إلى 3 كلمات)
+            item_name = clean_arabic_words(line_str)
+
+            # إضافة الصنف للنتيجة فقط في حال وجود اسم صنف عربي
+            if item_name:
+                if qty:
+                    items_formatted.append(f"{qty}/{item_name}")
                 else:
-                    fixed_words.append(w)
-
-            clean_line = " ".join(fixed_words[::-1])
-
-            # الحفاظ على السطر إذا احتوى على أرقام (كميات أو قطع غيار)
-            if re.search(r"\d", clean_line):
-                extracted_lines.append(f"• {clean_line}")
+                    items_formatted.append(f"• {item_name}")
 
     except Exception:
         pass
 
-    # إزالة التكرار والحفاظ على الترتيب
-    unique_lines = list(dict.fromkeys(extracted_lines))
+    # إزالة التكرار مع الحفاظ على الترتيب
+    unique_items = list(dict.fromkeys(items_formatted))
     return (
-        "\n".join(unique_lines) if unique_lines else "• راجع الفاتورة المرفقة"
+        "\n".join(unique_items) if unique_items else "• راجع الفاتورة المرفقة"
     )
 
 
@@ -116,13 +139,11 @@ if zip_file is not None:
                     pdf_bytes = z.read(filename)
                     content_summary = parse_pdf_content(pdf_bytes)
 
-                    # استخراج الأرقام المجردة من اسم الملف
                     digits_in_name = extract_clean_number(
                         filename.split("/")[-1]
                     )
 
                     if digits_in_name:
-                        # تخزين الاسم الكامل والآخر 5 أو 6 أرقام
                         pdf_catalog[digits_in_name] = content_summary
                         if len(digits_in_name) >= 5:
                             pdf_catalog[digits_in_name[-5:]] = content_summary
@@ -154,10 +175,6 @@ if excel_file is not None:
             if not digits_excel:
                 continue
 
-            # إستراتيجية البحث عن الـ PDF المطابق:
-            # 1. البحث بالرقم الكامل
-            # 2. البحث بأحدث 5 أرقام (بعد قص 1001104 أو ما شابه)
-            # 3. البحث بآحاد الفاتورة
             items_details = (
                 pdf_catalog.get(digits_excel)
                 or pdf_catalog.get(digits_excel[-5:])
@@ -185,7 +202,7 @@ if excel_file is not None:
                 f"عليكم فاتوره مبيعات: {inv_type_desc}\n"
                 f"مبلغ الفاتوره: {amount} {curr_str}\n"
                 f"وبهذا يكون الرصيد عليكم: {balance} {curr_str}\n"
-                f":التفاصيل\n"
+                f"التفاصيل:\n"
                 f"{items_details}"
             )
 
