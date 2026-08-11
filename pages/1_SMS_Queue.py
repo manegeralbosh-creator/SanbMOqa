@@ -3,14 +3,13 @@ import re
 import urllib.parse
 import zipfile
 import pandas as pd
-import pdfplumber
+import pypdf
 import streamlit as st
 
 st.set_page_config(page_title="طابور الفواتير", page_icon="📱", layout="wide")
 
 st.title("📱 طابور إرسال الفواتير عبر الشريحة")
 
-# 1. قسم رفع الملفات
 st.subheader("📂 رفع ملف الإكسل والأرشيف المضغوط")
 col1, col2 = st.columns(2)
 
@@ -25,96 +24,77 @@ with col2:
     )
 
 
-# ---------------------------------------------------------
-# دالة تصحيح اتجاه النص العربي المعكوس
-# ---------------------------------------------------------
-def fix_arabic_text(text):
+def fix_reversed_text(text):
+    """إصلاح اتجاه النص العربي المعكوس"""
     if not text:
         return ""
-    # إذا كان النص يحتوي على حروف عربية معكوسة، يتم عكس الكلمات لتعتدل
     words = text.split()
     fixed_words = []
-    for word in words:
-        # إذا كانت الكلمة تحتوي على حروف عربية يتم عكس حروفها
-        if re.search(r"[\u0600-\u06FF]", word):
-            fixed_words.append(word[::-1])
+    for w in words:
+        if re.search(r"[\u0600-\u06FF]", w):
+            fixed_words.append(w[::-1])
         else:
-            fixed_words.append(word)
-    # إعادة ترتيب الكلمات من اليمين للشمال
+            fixed_words.append(w)
     return " ".join(fixed_words[::-1])
 
 
-# ---------------------------------------------------------
-# دالة استخراج الأصناف والكميات بدقة
-# ---------------------------------------------------------
-def extract_clean_items(pdf_bytes):
-    items_list = []
+def extract_items_from_pdf(pdf_bytes):
+    """استخراج اسم الصنف والكمية مع معالجة النص المعكوس"""
+    extracted_items = []
     try:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                # استخراج الجداول أولاً
-                tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        if row and len(row) >= 3:
-                            # تنظيف وتعديل أسطر الجدول
-                            row_str = " ".join(
-                                [str(cell) for cell in row if cell]
-                            )
-                            if any(
-                                kw in row_str
-                                for kw in [
-                                    "الإجمالي",
-                                    "الخصم",
-                                    "فقط لاغير",
-                                    "رقم الصنف",
-                                    "المبيعات",
-                                ]
-                            ):
-                                continue
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        full_text = ""
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                full_text += t + "\n"
 
-                            item_name = str(row[1]).strip() if row[1] else ""
-                            qty = str(row[2]).strip() if row[2] else ""
+        lines = full_text.split("\n")
+        for line in lines:
+            line_str = line.strip()
+            if not line_str or len(line_str) < 5:
+                continue
 
-                            # إصلاح معكوس اللغة العربية في اسم الصنف
-                            item_name_fixed = fix_arabic_text(item_name)
+            # استبعاد الترويسة والإجماليات
+            if any(
+                kw in line_str
+                for kw in [
+                    "البوش",
+                    "الرئيسي",
+                    "فاتورة",
+                    "إجمالي",
+                    "العميل",
+                    "الرصيد",
+                    "التاريخ",
+                    "المبلغ",
+                    "الصافي",
+                    "تلفن",
+                    "موبايل",
+                    "نوع الفاتورة",
+                    "العملة",
+                    "المخازن",
+                    "المبيعات",
+                    "المحاسب",
+                    "المستلم",
+                    "Mohammad",
+                ]
+            ):
+                continue
 
-                            # تنظيف رقم الكمية
-                            if qty.endswith(".00") or qty.endswith(".0"):
-                                qty = qty.split(".")[0]
+            # تصحيح اتجاه النص العربي المعكوس
+            fixed_line = fix_reversed_text(line_str)
 
-                            if item_name_fixed and qty and qty.isdigit():
-                                items_list.append(
-                                    f"• {item_name_fixed} (الكمية: {qty})"
-                                )
+            if re.search(r"\d", fixed_line):
+                extracted_items.append(f"• {fixed_line}")
 
-                # في حال عدم وجود جدول مدمج، يتم قراءة الأسطر العادية
-                if not items_list:
-                    text = page.extract_text() or ""
-                    lines = text.split("\n")
-                    for line in lines:
-                        # البحث عن الأسطر التي تحتوي على أرقام قطع وأسماء
-                        if re.search(r"\d+", line) and not any(
-                            k in line
-                            for k in [
-                                "فاتورة",
-                                "الرئيسي",
-                                "الإجمالي",
-                                "العميل",
-                                "الرصيد",
-                                "تلفن",
-                                "موبايل",
-                            ]
-                        ):
-                            fixed_line = fix_arabic_text(line)
-                            items_list.append(f"• {fixed_line}")
     except Exception:
         pass
 
-    unique_items = list(dict.fromkeys(items_list))
+    unique_items = list(dict.fromkeys(extracted_items))
     return unique_items
 
 
+# قاموس لحفظ بيانات الفواتير المستخرجة من الـ PDF
 pdf_data_dict = {}
 
 if zip_file is not None:
@@ -127,16 +107,24 @@ if zip_file is not None:
                 ):
                     pdf_count += 1
                     file_basename = filename.split("/")[-1]
-                    digits_only = re.sub(r"\D", "", file_basename)
 
-                    pdf_bytes = z.read(filename)
-                    extracted_items = extract_clean_items(pdf_bytes)
+                    # استخراج الأرقام من اسم ملف الـ PDF (يحتفظ بالرقم مع البادئة أو بدونها)
+                    digits = re.sub(r"\D", "", file_basename)
 
-                    pdf_data_dict[digits_only] = (
-                        "\n".join(extracted_items)
-                        if extracted_items
-                        else "• راجع الفاتورة المرفقة"
-                    )
+                    if digits:
+                        pdf_bytes = z.read(filename)
+                        items = extract_items_from_pdf(pdf_bytes)
+
+                        items_str = (
+                            "\n".join(items)
+                            if items
+                            else "• راجع الفاتورة المرفقة"
+                        )
+
+                        # تخزين النتيجة بالأرقام كاملة وبدون البادئة لضمان التطابق 100%
+                        pdf_data_dict[digits] = items_str
+                        if digits.startswith("100110"):
+                            pdf_data_dict[digits[6:]] = items_str
 
             st.success(f"✅ تم معالجة {pdf_count} ملف PDF بنجاح.")
     except Exception as e:
@@ -161,7 +149,16 @@ if excel_file is not None:
     for _, row in df.iterrows():
         try:
             raw_inv = str(row.iloc[0]).strip()
-            inv_code = re.sub(r"\D", "", raw_inv)
+            inv_digits = re.sub(r"\D", "", raw_inv)  # استخراج الرقم المجرّد
+
+            # مطابقة الرقم الكامل من الإكسل مع ملف الـ PDF
+            # يبحث بالرقم الكامل أولاً (مثل 10011029774)، وإذا لم يجده يبحث بالرقم بدون البادئة (29774)
+            short_inv_code = re.sub(r"^100110", "", inv_digits)
+
+            items_text = pdf_data_dict.get(
+                inv_digits,
+                pdf_data_dict.get(short_inv_code, "• راجع الفاتورة المرفقة"),
+            )
 
             raw_currency = str(row.iloc[4]).strip().upper()
             currency = (
@@ -179,10 +176,6 @@ if excel_file is not None:
             amount_formatted = format_number(row.iloc[9])
             balance_formatted = format_number(row.iloc[10])
 
-            items_text = pdf_data_dict.get(
-                inv_code, "• راجع الفاتورة المرفقة"
-            )
-
             sms_text = (
                 f"محلات البوش للتجاره المركز الرئيسي جدر\n"
                 f"الاخ: {customer}\n"
@@ -194,7 +187,7 @@ if excel_file is not None:
             )
             invoices_list.append(
                 {
-                    "code": inv_code,
+                    "code": raw_inv,
                     "customer": customer,
                     "phone": phone,
                     "sms_text": sms_text,
@@ -207,9 +200,6 @@ if excel_file is not None:
 
 st.divider()
 
-# ---------------------------------------------------------
-# عرض الواجهة بدون خيار المعاينة
-# ---------------------------------------------------------
 if invoices_list:
     st.subheader("📋 تفاصيل طابور الفواتير")
     for idx, inv in enumerate(invoices_list):
