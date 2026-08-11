@@ -26,53 +26,93 @@ with col2:
 
 
 # ---------------------------------------------------------
-# الدالة المعدلة لاستخراج (اسم الصنف + الكمية) فقط من الـ PDF
+# دالة تصحيح اتجاه النص العربي المعكوس
 # ---------------------------------------------------------
-def extract_raw_and_clean_items(pdf_bytes):
-    raw_text_debug = ""
+def fix_arabic_text(text):
+    if not text:
+        return ""
+    # إذا كان النص يحتوي على حروف عربية معكوسة، يتم عكس الكلمات لتعتدل
+    words = text.split()
+    fixed_words = []
+    for word in words:
+        # إذا كانت الكلمة تحتوي على حروف عربية يتم عكس حروفها
+        if re.search(r"[\u0600-\u06FF]", word):
+            fixed_words.append(word[::-1])
+        else:
+            fixed_words.append(word)
+    # إعادة ترتيب الكلمات من اليمين للشمال
+    return " ".join(fixed_words[::-1])
+
+
+# ---------------------------------------------------------
+# دالة استخراج الأصناف والكميات بدقة
+# ---------------------------------------------------------
+def extract_clean_items(pdf_bytes):
     items_list = []
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                raw_text_debug += (
-                    (page.extract_text() or "") + "\n--- نهاية الصفحة ---\n"
-                )
-
-                # استخراج الجداول
+                # استخراج الجداول أولاً
                 tables = page.extract_tables()
                 for table in tables:
                     for row in table:
-                        # التأكد من أن السطر يحتوي على بيانات صنف (يتضمن 3 أعمدة على الأقل)
-                        if (
-                            row
-                            and len(row) >= 3
-                            and row[0]
-                            and row[0] != "رقم الصنف"
-                        ):
-                            # استبعاد أسطر الإجماليات والخصم
+                        if row and len(row) >= 3:
+                            # تنظيف وتعديل أسطر الجدول
+                            row_str = " ".join(
+                                [str(cell) for cell in row if cell]
+                            )
                             if any(
-                                kw in str(row)
-                                for kw in ["الإجمالي", "الخصم", "فقط لاغير"]
+                                kw in row_str
+                                for kw in [
+                                    "الإجمالي",
+                                    "الخصم",
+                                    "فقط لاغير",
+                                    "رقم الصنف",
+                                    "المبيعات",
+                                ]
                             ):
                                 continue
 
-                            # العمود [1] يحتوي اسم الصنف، والعمود [2] يحتوي الكمية حسب تصميم الفاتورة
                             item_name = str(row[1]).strip() if row[1] else ""
                             qty = str(row[2]).strip() if row[2] else ""
 
-                            # تحويل أرقام الكمية الفعالة إلى أرقام صحيحة إذا لم تكن كسوراً
+                            # إصلاح معكوس اللغة العربية في اسم الصنف
+                            item_name_fixed = fix_arabic_text(item_name)
+
+                            # تنظيف رقم الكمية
                             if qty.endswith(".00") or qty.endswith(".0"):
                                 qty = qty.split(".")[0]
 
-                            if item_name:
-                                items_list.append(f"• {item_name} (الكمية: {qty})")
+                            if item_name_fixed and qty and qty.isdigit():
+                                items_list.append(
+                                    f"• {item_name_fixed} (الكمية: {qty})"
+                                )
 
-    except Exception as e:
-        raw_text_debug = f"خطأ في القراءة: {e}"
+                # في حال عدم وجود جدول مدمج، يتم قراءة الأسطر العادية
+                if not items_list:
+                    text = page.extract_text() or ""
+                    lines = text.split("\n")
+                    for line in lines:
+                        # البحث عن الأسطر التي تحتوي على أرقام قطع وأسماء
+                        if re.search(r"\d+", line) and not any(
+                            k in line
+                            for k in [
+                                "فاتورة",
+                                "الرئيسي",
+                                "الإجمالي",
+                                "العميل",
+                                "الرصيد",
+                                "تلفن",
+                                "موبايل",
+                            ]
+                        ):
+                            fixed_line = fix_arabic_text(line)
+                            items_list.append(f"• {fixed_line}")
+    except Exception:
+        pass
 
-    # إزالة التكرارات مع الحفاظ على الترتيب
     unique_items = list(dict.fromkeys(items_list))
-    return raw_text_debug, unique_items
+    return unique_items
 
 
 pdf_data_dict = {}
@@ -90,22 +130,13 @@ if zip_file is not None:
                     digits_only = re.sub(r"\D", "", file_basename)
 
                     pdf_bytes = z.read(filename)
-                    raw_debug, extracted_items = extract_raw_and_clean_items(
-                        pdf_bytes
-                    )
+                    extracted_items = extract_clean_items(pdf_bytes)
 
-                    pdf_data_dict[digits_only] = {
-                        "items_text": (
-                            "\n".join(extracted_items)
-                            if extracted_items
-                            else "• راجع الفاتورة المرفقة"
-                        ),
-                        "raw_debug": (
-                            raw_debug
-                            if raw_debug
-                            else "لم يتم استخراج أي نص خام من الملف (قد تكون الفاتورة عبارة عن صورة ممسوحة ضوئياً)."
-                        ),
-                    }
+                    pdf_data_dict[digits_only] = (
+                        "\n".join(extracted_items)
+                        if extracted_items
+                        else "• راجع الفاتورة المرفقة"
+                    )
 
             st.success(f"✅ تم معالجة {pdf_count} ملف PDF بنجاح.")
     except Exception as e:
@@ -148,12 +179,8 @@ if excel_file is not None:
             amount_formatted = format_number(row.iloc[9])
             balance_formatted = format_number(row.iloc[10])
 
-            pdf_info = pdf_data_dict.get(
-                inv_code,
-                {
-                    "items_text": "• راجع الفاتورة المرفقة",
-                    "raw_debug": "لم يتم العثور على ملف PDF مطليق لهذا الرقم.",
-                },
+            items_text = pdf_data_dict.get(
+                inv_code, "• راجع الفاتورة المرفقة"
             )
 
             sms_text = (
@@ -163,7 +190,7 @@ if excel_file is not None:
                 f"مبلغ الفاتوره: {amount_formatted} {currency}\n"
                 f"وبهذا يكون الرصيد عليكم: {balance_formatted} {currency}\n"
                 f"التفاصيل:\n"
-                f"{pdf_info['items_text']}"
+                f"{items_text}"
             )
             invoices_list.append(
                 {
@@ -171,7 +198,6 @@ if excel_file is not None:
                     "customer": customer,
                     "phone": phone,
                     "sms_text": sms_text,
-                    "raw_debug": pdf_info["raw_debug"],
                 }
             )
         except Exception:
@@ -181,11 +207,14 @@ if excel_file is not None:
 
 st.divider()
 
+# ---------------------------------------------------------
+# عرض الواجهة بدون خيار المعاينة
+# ---------------------------------------------------------
 if invoices_list:
     st.subheader("📋 تفاصيل طابور الفواتير")
     for idx, inv in enumerate(invoices_list):
         with st.container():
-            c1, c2, c3 = st.columns([3, 4, 3])
+            c1, c2, c3 = st.columns([3, 5, 2])
             with c1:
                 st.markdown(f"**العميل:** {inv['customer']}")
                 st.markdown(f"**رقم الفاتورة:** `{inv['code']}`")
@@ -197,10 +226,6 @@ if invoices_list:
                     height=180,
                     key=f"area_{idx}",
                 )
-                with st.expander(
-                    "🔍 معاينة النص الخام المستخرج من الـ PDF"
-                ):
-                    st.code(inv["raw_debug"], language="text")
             with c3:
                 encoded_msg = urllib.parse.quote(inv["sms_text"])
                 sms_url = f"sms:{inv['phone']}?body={encoded_msg}"
