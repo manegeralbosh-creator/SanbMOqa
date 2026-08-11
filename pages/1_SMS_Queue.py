@@ -33,7 +33,7 @@ def extract_clean_number(text):
 def clean_arabic_words(text):
     if not text:
         return ""
-    # عكس السطر بالكامل لتصحيح تشفير أونكس برو
+    # عكس السطر بالكامل لتصحيح تشفير أونكس برو المعكوس
     fixed_line = str(text)[::-1]
     arabic_words = re.findall(r"[\u0600-\u06FF]+", fixed_line)
     clean_words = [w for w in arabic_words if len(w) > 1]
@@ -42,7 +42,7 @@ def clean_arabic_words(text):
 
 
 def format_quantity(qty_str):
-    """تنسيق الكمية سواء كانت صحيحة أو عشرية (مثل 0.75، 1.25، 2)"""
+    """تنسيق الكمية للأعداد الصحيحة والعشرية"""
     try:
         val = float(qty_str)
         if val.is_integer():
@@ -78,6 +78,9 @@ def parse_pdf_content(pdf_bytes):
         "الكمية",
         "السعر",
         "الخصم",
+        "جمالي",
+        "اسم العميل",
+        "رقم الصنف",
         "ريال",
         "سعودي",
         "Onyx",
@@ -86,75 +89,54 @@ def parse_pdf_content(pdf_bytes):
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
-                # استخراج الجدول مباشرة للتعامل مع الأعمدة المحددة
-                tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        if not row or len(row) < 3:
-                            continue
+                text = page.extract_text()
+                if not text:
+                    continue
 
-                        # دمج جميع أجزاء السطر للفحص
-                        row_text = " ".join(
-                            [str(cell) for cell in row if cell]
-                        )
-                        if any(kw in row_text for kw in ignore_keywords):
-                            continue
+                for line in text.split("\n"):
+                    line_str = line.strip()
+                    if not line_str or len(line_str) < 3:
+                        continue
 
-                        # استخراج اسم الصنف من الخلايا التي تحتوي نصوص عربية
-                        item_name = clean_arabic_words(row_text)
-                        if not item_name:
-                            continue
+                    # استبعاد أسطر العناوين والإجماليات
+                    if any(kw in line_str for kw in ignore_keywords):
+                        continue
 
-                        # البحث عن الأرقام (صحيحة أو عشرية) داخل خلايا السطر
-                        # تشمل الكسور مثل 0.75, 1.25, 2.5
-                        numbers = re.findall(r"\b\d+(?:\.\d+)?\b", row_text)
+                    # استخراج وتنظيف اسم الصنف
+                    item_name = clean_arabic_words(line_str)
 
-                        qty = ""
-                        if numbers:
-                            # فلترة الأرقام لتحديد رقم الكمية وتجاهل الأرقام الكبيرة (المبالغ)
-                            possible_qtys = [
-                                n for n in numbers if float(n) < 100
-                            ]
-                            if possible_qtys:
-                                qty = format_quantity(possible_qtys[0])
+                    # استبعاد المسميات الإدارية التي قد تفلت من الفلترة
+                    if not item_name or any(
+                        kw in item_name
+                        for kw in ["العميل", "مصنع", "الخصم", "رقم الصنف"]
+                    ):
+                        continue
 
-                        if qty:
+                    # الشرط الخاص: فحص ما إذا كان الصنف قماش أو طقم قماش
+                    is_fabric_item = any(
+                        kw in item_name for kw in ["قماش", "طقم"]
+                    )
+
+                    if is_fabric_item:
+                        # استخراج الكمية (صحيحة أو عشرية أقل من 100)
+                        numbers = re.findall(r"\b\d+(?:\.\d+)?\b", line_str)
+                        possible_qtys = [
+                            n for n in numbers if float(n) < 100
+                        ]
+
+                        if possible_qtys:
+                            qty = format_quantity(possible_qtys[0])
                             items_formatted.append(f"{qty}/{item_name}")
                         else:
                             items_formatted.append(f"• {item_name}")
-
-                # طريقة احتياطية في حال لم يتم استخراج الجدول كـ Table هيكلي
-                if not items_formatted:
-                    text = page.extract_text()
-                    if text:
-                        for line in text.split("\n"):
-                            line_str = line.strip()
-                            if not line_str or any(
-                                kw in line_str for kw in ignore_keywords
-                            ):
-                                continue
-
-                            item_name = clean_arabic_words(line_str)
-                            if not item_name:
-                                continue
-
-                            # البحث عن الأرقام العشرية والصحيحة
-                            numbers = re.findall(
-                                r"\b\d+(?:\.\d+)?\b", line_str
-                            )
-                            possible_qtys = [
-                                n for n in numbers if float(n) < 100
-                            ]
-
-                            if possible_qtys:
-                                qty = format_quantity(possible_qtys[0])
-                                items_formatted.append(f"{qty}/{item_name}")
-                            else:
-                                items_formatted.append(f"• {item_name}")
+                    else:
+                        # الأصناف العادية بدون إظهار كميات
+                        items_formatted.append(f"• {item_name}")
 
     except Exception:
         pass
 
+    # إزالة التكرارات مع الحفاظ على الترتيب
     unique_items = list(dict.fromkeys(items_formatted))
     return (
         "\n".join(unique_items) if unique_items else "• راجع الفاتورة المرفقة"
