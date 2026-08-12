@@ -6,10 +6,10 @@ import pandas as pd
 import pdfplumber
 import streamlit as st
 
-  st.subheader('📲 نظام مراجعة وإرسال الفواتير عبر الواتساب')
+st.subheader('📲 نظام مراجعة وإرسال الفواتير عبر الواتساب')
 
   # 1. تهيئة متغيرات الجلسة
-  if 'completed_invoices' not in st.session_state:
+if 'completed_invoices' not in st.session_state:
     st.session_state.completed_invoices = set()
 
   if 'skipped_invoices' not in st.session_state:
