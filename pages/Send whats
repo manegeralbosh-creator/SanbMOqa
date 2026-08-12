@@ -1,5 +1,11 @@
-import 
-import 
+import io
+import re
+import urllib.parse
+import zipfile
+import pandas as pd
+import pdfplumber
+import streamlit as st
+
   st.subheader('📲 نظام مراجعة وإرسال الفواتير عبر الواتساب')
 
   # 1. تهيئة متغيرات الجلسة
