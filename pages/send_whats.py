@@ -10,12 +10,15 @@ import streamlit as st
 
 st.subheader('📲 نظام مراجعة وإرسال الفواتير عبر الواتساب')
 
-# 1. تهيئة متغيرات الجلسة
+# 1. تهيئة متغيرات الجلسة للبيانات والملفات (لضمان عدم ضياعها أثناء التنقل)
 if 'completed_invoices' not in st.session_state:
     st.session_state.completed_invoices = set()
 
 if 'skipped_invoices' not in st.session_state:
     st.session_state.skipped_invoices = set()
+
+if 'pdf_store' not in st.session_state:
+    st.session_state.pdf_store = {}
 
 # 2. رفع الملفات (ملف الإكسل + خيارين لرفع الفواتير)
 st.markdown('#### 📂 1. رفع البيانات والفواتير')
@@ -42,14 +45,11 @@ with col_pdf_direct:
         key='inv_direct_pdfs',
     )
 
-# 3. معالجة وتخزين ملفات الـ PDF في الذاكرة من المصدرين (المضغوط + المباشر)
-pdf_store = {}
-
-# أ) معالجة الأرشيف المضغوط بأي صيغة
+# 3. معالجة وتخزين ملفات الـ PDF في session_state لمنع فقدانها
+# أ) معالجة الأرشيف المضغوط
 if archive_file is not None:
     file_ext = archive_file.name.split('.')[-1].lower()
     try:
-        # صيغة ZIP
         if file_ext == 'zip':
             with zipfile.ZipFile(archive_file, 'r') as z:
                 for file_info in z.infolist():
@@ -60,11 +60,10 @@ if archive_file is not None:
                         )
                         clean_num = ''.join(filter(str.isdigit, raw_name))
                         file_bytes = z.read(file_info.filename)
-                        pdf_store[raw_name] = file_bytes
+                        st.session_state.pdf_store[raw_name] = file_bytes
                         if clean_num:
-                            pdf_store[clean_num] = file_bytes
+                            st.session_state.pdf_store[clean_num] = file_bytes
 
-        # صيغة RAR
         elif file_ext == 'rar':
             if 'HAS_RAR' in globals() and HAS_RAR:
                 with rarfile.RarFile(archive_file) as r:
@@ -76,15 +75,12 @@ if archive_file is not None:
                             )
                             clean_num = ''.join(filter(str.isdigit, raw_name))
                             file_bytes = r.read(file_info.filename)
-                            pdf_store[raw_name] = file_bytes
+                            st.session_state.pdf_store[raw_name] = file_bytes
                             if clean_num:
-                                pdf_store[clean_num] = file_bytes
+                                st.session_state.pdf_store[clean_num] = file_bytes
             else:
-                st.warning(
-                    '⚠️ لقراءة ملفات RAR يرجى تثبيت مكتبة rarfile (`pip install rarfile`).'
-                )
+                st.warning('⚠️ لقراءة ملفات RAR يرجى تثبيت مكتبة rarfile.')
 
-        # صيغة 7Z
         elif file_ext == '7z':
             if 'HAS_7Z' in globals() and HAS_7Z:
                 with py7zr.SevenZipFile(archive_file, mode='r') as z:
@@ -97,15 +93,12 @@ if archive_file is not None:
                             )
                             clean_num = ''.join(filter(str.isdigit, raw_name))
                             file_bytes = bio.read()
-                            pdf_store[raw_name] = file_bytes
+                            st.session_state.pdf_store[raw_name] = file_bytes
                             if clean_num:
-                                pdf_store[clean_num] = file_bytes
+                                st.session_state.pdf_store[clean_num] = file_bytes
             else:
-                st.warning(
-                    '⚠️ لقراءة ملفات 7Z يرجى تثبيت مكتبة py7zr (`pip install py7zr`).'
-                )
+                st.warning('⚠️ لقراءة ملفات 7Z يرجى تثبيت مكتبة py7zr.')
 
-        # صيغ TAR / TAR.GZ
         elif file_ext in ['tar', 'gz']:
             if 'HAS_TAR' in globals() and HAS_TAR:
                 with tarfile.open(fileobj=archive_file) as t:
@@ -119,14 +112,14 @@ if archive_file is not None:
                             f = t.extractfile(member)
                             if f:
                                 file_bytes = f.read()
-                                pdf_store[raw_name] = file_bytes
+                                st.session_state.pdf_store[raw_name] = file_bytes
                                 if clean_num:
-                                    pdf_store[clean_num] = file_bytes
+                                    st.session_state.pdf_store[clean_num] = file_bytes
 
     except Exception as e:
         st.error(f'❌ حدث خطأ أثناء قراءة الملف المضغوط: {e}')
 
-# ب) معالجة ملفات PDF المرفوعة مباشرة بدون ضغط
+# ب) معالجة ملفات PDF المرفوعة مباشرة
 if direct_pdf_files:
     for f in direct_pdf_files:
         raw_name = (
@@ -134,13 +127,13 @@ if direct_pdf_files:
         )
         clean_num = ''.join(filter(str.isdigit, raw_name))
         file_bytes = f.getvalue()
-        pdf_store[raw_name] = file_bytes
+        st.session_state.pdf_store[raw_name] = file_bytes
         if clean_num:
-            pdf_store[clean_num] = file_bytes
+            st.session_state.pdf_store[clean_num] = file_bytes
 
-# إظهار إشعار إجمالي الفواتير الجاهزة بالذاكرة
-if pdf_store:
-    st.success(f'✅ تم تجهيز واستخراج {len(pdf_store)} فاتورة PDF بنجاح!')
+# إشعار بوجود ملفات جارية بالذاكرة
+if st.session_state.pdf_store:
+    st.success(f'✅ الذاكرة تحتوي حالياً على {len(st.session_state.pdf_store)} فاتورة PDF جاهزة للإرسال!')
 
 if excel_file is not None:
     try:
@@ -204,13 +197,39 @@ if excel_file is not None:
             else 0
         )
 
-        c_stat1, c_stat2, c_stat3, c_stat4 = st.columns(4)
-        c_stat1.metric('إجمالي الكشف', total_invoices)
-        c_stat2.metric('تم الإرسال', completed_count)
-        c_stat3.metric('ملغاة / كنسل', skipped_count)
-        c_stat4.metric('المتبقي', remaining_invoices)
+        # 📊 شريط الإحصائيات المصغر والأنيق أفقياً
+        st.markdown(f"""
+        <div style="
+            display: flex; 
+            justify-content: space-around; 
+            align-items: center; 
+            background-color: #f8f9fa; 
+            padding: 8px 5px; 
+            border-radius: 8px; 
+            border: 1px solid #e9ecef;
+            margin: 8px 0;
+            text-align: center;
+        ">
+            <div style="flex: 1; border-left: 1px solid #dee2e6;">
+                <span style="font-size: 11px; color: #6c757d; display: block; margin-bottom: -2px;">إجمالي الكشف</span>
+                <strong style="font-size: 15px; color: #212529;">{total_invoices}</strong>
+            </div>
+            <div style="flex: 1; border-left: 1px solid #dee2e6;">
+                <span style="font-size: 11px; color: #28a745; display: block; margin-bottom: -2px;">تم الإرسال</span>
+                <strong style="font-size: 15px; color: #28a745;">{completed_count}</strong>
+            </div>
+            <div style="flex: 1; border-left: 1px solid #dee2e6;">
+                <span style="font-size: 11px; color: #dc3545; display: block; margin-bottom: -2px;">ملغاة / كنسل</span>
+                <strong style="font-size: 15px; color: #dc3545;">{skipped_count}</strong>
+            </div>
+            <div style="flex: 1;">
+                <span style="font-size: 11px; color: #007bff; display: block; margin-bottom: -2px;">المتبقي</span>
+                <strong style="font-size: 15px; color: #007bff;">{remaining_invoices}</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # 📊 زر تنزيل التقرير المحدث
+        # 📊 زر تنزيل التقرير
         if 'generate_excel_report' in globals():
             excel_data = generate_excel_report(
                 filtered_df,
@@ -258,8 +277,8 @@ if excel_file is not None:
             amount_val = float(current_row.get('amt', 0))
             balance_val = float(current_row.get('total', 0))
 
-            # البحث عن ملف الـ PDF المطابق للعميل في الذاكرة
-            pdf_bytes = pdf_store.get(doc_ser_val) or pdf_store.get(
+            # البحث عن ملف الـ PDF المطابق للعميل من session_state
+            pdf_bytes = st.session_state.pdf_store.get(doc_ser_val) or st.session_state.pdf_store.get(
                 f'DOCSER_{doc_ser_val}'
             )
 
@@ -289,7 +308,7 @@ if excel_file is not None:
 
             st.divider()
 
-            # 5. خيارات الفاتورة المرفقة (بدون معاينة الإطار)
+            # 5. خيارات الفاتورة المرفقة
             st.markdown('### 📄 خيارات الفاتورة المرفقة:')
             if pdf_bytes:
                 st.success(
@@ -299,7 +318,7 @@ if excel_file is not None:
 
                 base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
 
-                # 1. زر "مشاركة الفاتورة" لنظام الأندرويد (Web Share API)
+                # زر "مشاركة الفاتورة" لنظام الأندرويد
                 share_html = f"""
                 <script>
                 async function sharePDF_{doc_ser_val}() {{
@@ -346,7 +365,7 @@ if excel_file is not None:
                 """
                 st.components.v1.html(share_html, height=65)
 
-                # 2. زر تنزيل الفاتورة الفردية
+                # زر تنزيل الفاتورة
                 st.download_button(
                     label=f'⬇️ تنزيل ملف الفاتورة مباشرة (PDF)',
                     data=pdf_bytes,
