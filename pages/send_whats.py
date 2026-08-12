@@ -12,7 +12,7 @@ st.subheader('📲 نظام مراجعة وإرسال الفواتير عبر ا
 if 'completed_invoices' not in st.session_state:
     st.session_state.completed_invoices = set()
 
-  if 'skipped_invoices' not in st.session_state:
+if 'skipped_invoices' not in st.session_state:
     st.session_state.skipped_invoices = set()
 
   # 2. رفع الملفات (ملف الإكسل + خيارين لرفع الفواتير)
