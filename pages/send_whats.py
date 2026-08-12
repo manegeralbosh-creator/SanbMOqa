@@ -210,7 +210,7 @@ if excel_file is not None:
         c_stat3.metric('ملغاة / كنسل', skipped_count)
         c_stat4.metric('المتبقي', remaining_invoices)
 
-        # 📊 زر تنزيل التقرير المحدث (إذا كانت الدالة موجودة)
+        # 📊 زر تنزيل التقرير المحدث
         if 'generate_excel_report' in globals():
             excel_data = generate_excel_report(
                 filtered_df,
@@ -289,22 +289,17 @@ if excel_file is not None:
 
             st.divider()
 
-            # 🖼️ 5. استعراض الفاتورة مباشرة مع خيارات المشاركة للأندرويد والتنزيل
-            st.markdown('### 📄 استعراض الفاتورة المرفقة:')
+            # 5. خيارات الفاتورة المرفقة (بدون معاينة الإطار)
+            st.markdown('### 📄 خيارات الفاتورة المرفقة:')
             if pdf_bytes:
                 st.success(
                     f'✓ تم العثور على الفاتورة الخاصّة بالرقم التسلسلي:'
                     f' ({doc_ser_val})'
                 )
 
-                # 1. معاينة الفاتورة داخل إطار iframe
                 base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="450" type="application/pdf" style="border-radius: 8px; border: 1px solid #ddd;"></iframe>'
-                st.markdown(pdf_display, unsafe_allow_html=True)
 
-                st.write('')
-
-                # 2. زر "مشاركة الفاتورة" لنظام الأندرويد (Web Share API)
+                # 1. زر "مشاركة الفاتورة" لنظام الأندرويد (Web Share API)
                 share_html = f"""
                 <script>
                 async function sharePDF_{doc_ser_val}() {{
@@ -351,7 +346,7 @@ if excel_file is not None:
                 """
                 st.components.v1.html(share_html, height=65)
 
-                # 3. زر تنزيل الفاتورة الفردية
+                # 2. زر تنزيل الفاتورة الفردية
                 st.download_button(
                     label=f'⬇️ تنزيل ملف الفاتورة مباشرة (PDF)',
                     data=pdf_bytes,
