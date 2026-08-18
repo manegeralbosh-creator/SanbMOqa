@@ -276,6 +276,9 @@ if excel_file is not None:
             currency_val = str(current_row.get('curr', ''))
             amount_val = float(current_row.get('amt', 0))
             balance_val = float(current_row.get('total', 0))
+            
+            # قراءة عمود البيان/الوصف (decs)
+            description_val = str(current_row.get('decs', '---')).strip()
 
             # البحث عن ملف الـ PDF المطابق للعميل من session_state
             pdf_bytes = st.session_state.pdf_store.get(doc_ser_val) or st.session_state.pdf_store.get(
@@ -286,6 +289,7 @@ if excel_file is not None:
             message_text = (
                 f'البوش للتجارة - المركز الرئيسي جدر\n'
                 f'الأخ: {customer_name}\n'
+                f'البيان: {description_val}\n'
                 f'مبلغ الفاتورة: {amount_val:,.2f} {currency_val}\n'
                 f'الرصيد الإجمالي: {balance_val:,.2f} {currency_val}\n'
             )
@@ -296,6 +300,7 @@ if excel_file is not None:
                 <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-right: 5px solid #25D366; margin-bottom: 10px;">
                     <h3 style="margin:0; color:#111;">👤 العميل: {customer_name}</h3>
                     <p style="margin:5px 0;"><b>رقم الفاتورة:</b> {no_doc_val} | <b>الرقم التسلسلي:</b> {doc_ser_val}</p>
+                    <p style="margin:5px 0;"><b>البيان:</b> {description_val}</p>
                     <p style="margin:5px 0;"><b>مبلغ الفاتورة:</b> <span style="color:#d9534f; font-size:17px; font-weight:bold;">{amount_val:,.2f} {currency_val}</span></p>
                     <p style="margin:5px 0;"><b>الرصيد الإجمالي:</b> <span style="color:#0275d8; font-size:17px; font-weight:bold;">{balance_val:,.2f} {currency_val}</span></p>
                 </div>
