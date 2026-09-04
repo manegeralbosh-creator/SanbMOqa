@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 import xml.etree.ElementTree as ET
 
-# --- 1. تهيئة قاعدة البيانات المدمجة للأشخاص ---
+# --- 1. تهيئة وترقية قاعدة البيانات تلقائياً ---
 def init_db():
     conn = sqlite3.connect("accounts_db.db")
     c = conn.cursor()
@@ -16,6 +16,12 @@ def init_db():
             analytical_account TEXT
         )
     ''')
+    # إضافة العمود الجديد تلقائياً في حال وجود القاعدة القديمة على السيرفر
+    try:
+        c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
+    except sqlite3.OperationalError:
+        pass  # العمود موجود مسبقاً
+    
     conn.commit()
     conn.close()
 
@@ -41,15 +47,21 @@ def get_person_info(name):
     row = c.fetchone()
     conn.close()
     if row:
-        return {"account": row[0], "analytical": row[1]}
+        return {"account": row[0], "analytical": row[1] if len(row) > 1 and row[1] else ""}
     return None
 
 def get_all_persons():
     conn = sqlite3.connect("accounts_db.db")
-    df = pd.read_sql_query(
-        "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
-        conn
-    )
+    try:
+        df = pd.read_sql_query(
+            "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
+            conn
+        )
+    except Exception:
+        df = pd.read_sql_query(
+            "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب' FROM persons",
+            conn
+        )
     conn.close()
     return df
 
@@ -94,14 +106,12 @@ def parse_single_message(raw_text):
             person_name = person_ref_match.group(1).strip()
             reference_no = person_ref_match.group(2).strip()
             
-            # صيغة البيان المطابقة لشاشة أونكس
             description = f"تحويل للمستلم {person_name} مرجع {reference_no}"
             
             p_info = get_person_info(person_name)
             debit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
-            # 1. جانب المدين (حساب الشخص أو الحساب العادي)
             entry_rows.append({
                 "رقم المستند": reference_no,
                 "التاريخ": today_str,
@@ -115,7 +125,6 @@ def parse_single_message(raw_text):
                 "دائن": 0.0
             })
             
-            # 2. عمولة البنك (إن وجدت)
             if fee > 0:
                 entry_rows.append({
                     "رقم المستند": reference_no,
@@ -130,7 +139,6 @@ def parse_single_message(raw_text):
                     "دائن": 0.0
                 })
                 
-            # 3. جانب الدائن (الصرافة / البنك)
             total_credit = amount + fee
             entry_rows.append({
                 "رقم المستند": reference_no,
@@ -158,14 +166,12 @@ def parse_single_message(raw_text):
             person_name = transfer_match.group(1).strip()
             reference_no = transfer_match.group(2).strip()
             
-            # صيغة البيان المطابقة لأونكس (مثال: من نايف ناصر الهادي...)
             description = f"من {person_name} حوالة {reference_no}"
             
             p_info = get_person_info(person_name)
             credit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
-            # 1. مدين: حساب الصرافة / الصندوق
             entry_rows.append({
                 "رقم المستند": reference_no,
                 "التاريخ": today_str,
@@ -179,7 +185,6 @@ def parse_single_message(raw_text):
                 "دائن": 0.0
             })
             
-            # 2. دائن: حساب العميل / الشخص
             entry_rows.append({
                 "رقم المستند": reference_no,
                 "التاريخ": today_str,
@@ -216,7 +221,7 @@ with tab1:
                     body = sms.get('body')
                     if body:
                         messages_text.append(body)
-            except Exception as e:
+            except Exception:
                 st.error("حدث خطأ أثناء قراءة ملف XML.")
         else:
             content = uploaded_file.read().decode("utf-8")
@@ -237,7 +242,7 @@ with tab2:
             rows = parse_single_message(single_msg)
             all_final_rows.extend(rows)
 
-# --- 5. عرض القيود وتصدير الإكسل المطابق لأونكس ---
+# --- 5. عرض القيود وتصدير الإكسل ---
 if all_final_rows:
     df_result = pd.DataFrame(all_final_rows)
     st.success(f"تم توليد {len(df_result)} أسطر قيود جاهزة للاستيراد!")
