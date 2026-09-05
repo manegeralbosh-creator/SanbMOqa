@@ -189,8 +189,8 @@ def parse_single_message(raw_text):
             
     return entry_rows
 
-# --- 5. واجهة رفع الملفات مع الفلترة بمدى أرقام الحوالات ---
-tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "إدخال يدوي لرسالة"])
+# --- 5. واجهة رفع الملفات واللصق الجماعي ---
+tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "لصق رسائل متعددة دفعة واحدة"])
 
 if "all_entries" not in st.session_state:
     st.session_state.all_entries = []
@@ -199,7 +199,6 @@ with tab1:
     st.subheader("رفع ملف النسخة الاحتياطية للرسائل")
     uploaded_file = st.file_uploader("اختر ملف XML أو TXT المنسوخ:", type=["xml", "txt"])
     
-    # إضافة خانات تصفية نطاق أرقام الحوالات
     st.markdown("### 🎯 فلترة النطاق (اختياري لتسريع التوليد وتقليل الحجم)")
     col_f1, col_f2 = st.columns(2)
     with col_f1:
@@ -227,10 +226,9 @@ with tab1:
             
         st.info(f"إجمالي الرسائل في الملف: {len(messages_text)} رسالة.")
         
-        if st.button("توليد ومعالجة القيود"):
+        if st.button("توليد ومعالجة القيود من الملف"):
             parsed_rows = []
             
-            # تحويل المدخلات إلى أرقام إذا تم إدخالها
             s_ref = int(start_ref.strip()) if start_ref.strip().isdigit() else None
             e_ref = int(end_ref.strip()) if end_ref.strip().isdigit() else None
             
@@ -252,13 +250,32 @@ with tab1:
             st.success(f"تم معالجة المستندات بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
 
 with tab2:
-    st.subheader("إدخال رسالة واحدة")
-    single_msg = st.text_area("أدخل نص الرسالة هنا:", height=120)
-    if st.button("تحويل الرسالة إلى قيد"):
-        if single_msg.strip():
-            rows = parse_single_message(single_msg)
-            st.session_state.all_entries.extend(rows)
-            st.success("تمت إضافة القيد بنجاح!")
+    st.subheader("إدخال/لصق مجموعة رسائل دفعة واحدة")
+    st.caption("قم بنسخ مجموعة الرسائل المطلوبة من جوالك ولصقها هنا معاً، وسيتم فصل كل رسالة عن الأخرى وتوليد قيودها تلقائياً بدون تداخل.")
+    
+    bulk_msg = st.text_area("انسخ والصق نصوص الرسائل هنا:", height=250, placeholder="ضع الرسائل هنا...")
+    
+    if st.button("تحويل جميع الرسائل الملصقة إلى قيود"):
+        if bulk_msg.strip():
+            # تقسيم النص الملصق بحسب السطور الفارغة أو الفواصل
+            raw_messages = re.split(r'\n\s*\n|={3,}|-{3,}', bulk_msg)
+            
+            parsed_rows = []
+            msg_count = 0
+            
+            for msg in raw_messages:
+                cleaned_msg = msg.strip()
+                if cleaned_msg:
+                    rows = parse_single_message(cleaned_msg)
+                    if rows:
+                        parsed_rows.extend(rows)
+                        msg_count += 1
+                        
+            if parsed_rows:
+                st.session_state.all_entries.extend(parsed_rows)
+                st.success(f"تمت معالجة {msg_count} رسالة بنجاح وإضافة قيودها للجدول!")
+            else:
+                st.warning("لم يتم العثور على صيغ حوالات معروفة في النص المنسوخ.")
 
 # --- 6. شاشة المراجعة وتنزيل الإكسل المباشر ---
 if st.session_state.all_entries:
@@ -287,6 +304,7 @@ if st.session_state.all_entries:
     df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
     st.dataframe(df_export, use_container_width=True)
     
+    # تحويل البيانات إلى Excel في الذاكرة المباشرة (In-Memory Buffer) لتنزيلها دون أخطاء
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Onyx_Entries')
