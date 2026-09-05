@@ -86,7 +86,14 @@ with st.sidebar.form("add_person_form"):
 
 st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 
-# --- 3. محرك تحليل النص واستخراج الرصيد والبيان القياسي ---
+# --- 3. استخراج رقم الحوالة/المرجع من الرسالة مباشرة للفلترة ---
+def extract_ref_number(raw_text):
+    ref_match = re.search(r'/\s*(\d+)', raw_text) or re.search(r'حوالة\s*(\d+)', raw_text)
+    if ref_match:
+        return int(ref_match.group(1))
+    return None
+
+# --- 4. محرك تحليل النص واستخراج الرصيد والبيان القياسي ---
 def parse_single_message(raw_text):
     entry_rows = []
     
@@ -182,7 +189,7 @@ def parse_single_message(raw_text):
             
     return entry_rows
 
-# --- 4. واجهة رفع الملفات والتحليل ---
+# --- 5. واجهة رفع الملفات مع الفلترة بمدى أرقام الحوالات ---
 tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "إدخال يدوي لرسالة"])
 
 if "all_entries" not in st.session_state:
@@ -192,6 +199,14 @@ with tab1:
     st.subheader("رفع ملف النسخة الاحتياطية للرسائل")
     uploaded_file = st.file_uploader("اختر ملف XML أو TXT المنسوخ:", type=["xml", "txt"])
     
+    # إضافة خانات تصفية نطاق أرقام الحوالات
+    st.markdown("### 🎯 فلترة النطاق (اختياري لتسريع التوليد وتقليل الحجم)")
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        start_ref = st.text_input("من رقم حوالة (أول رقم باليوم):", value="")
+    with col_f2:
+        end_ref = st.text_input("إلى رقم حوالة (آخر رقم باليوم):", value="")
+        
     if uploaded_file is not None:
         messages_text = []
         filename = uploaded_file.name.lower()
@@ -210,15 +225,31 @@ with tab1:
             content = uploaded_file.read().decode("utf-8")
             messages_text = [m.strip() for m in re.split(r'={3,}|-{3,}|\n\s*\n', content) if m.strip()]
             
-        st.info(f"تم العثور على {len(messages_text)} رسالة.")
+        st.info(f"إجمالي الرسائل في الملف: {len(messages_text)} رسالة.")
         
         if st.button("توليد ومعالجة القيود"):
             parsed_rows = []
+            
+            # تحويل المدخلات إلى أرقام إذا تم إدخالها
+            s_ref = int(start_ref.strip()) if start_ref.strip().isdigit() else None
+            e_ref = int(end_ref.strip()) if end_ref.strip().isdigit() else None
+            
             for msg in messages_text:
+                if s_ref is not None or e_ref is not None:
+                    msg_ref = extract_ref_number(msg)
+                    if msg_ref is not None:
+                        if s_ref is not None and msg_ref < s_ref:
+                            continue
+                        if e_ref is not None and msg_ref > e_ref:
+                            continue
+                    else:
+                        continue
+                        
                 rows = parse_single_message(msg)
                 parsed_rows.extend(rows)
+                
             st.session_state.all_entries = parsed_rows
-            st.success("تم تحويل جميع الرسائل إلى قيود محاسبية!")
+            st.success(f"تم معالجة المستندات بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
 
 with tab2:
     st.subheader("إدخال رسالة واحدة")
@@ -229,7 +260,7 @@ with tab2:
             st.session_state.all_entries.extend(rows)
             st.success("تمت إضافة القيد بنجاح!")
 
-# --- 5. شاشة المراجعة والبحث وتنزيل الإكسل المباشر ---
+# --- 6. شاشة المراجعة وتنزيل الإكسل المباشر ---
 if st.session_state.all_entries:
     st.markdown("---")
     st.subheader("🔍 شاشة مراجعة والبحث في القيود المستخرجة")
@@ -253,11 +284,9 @@ if st.session_state.all_entries:
     total_credit = df_filtered['الدائن'].sum()
     st.markdown(f"**عدد الأسطر المعروضة:** `{len(df_filtered)}` | **إجمالي المدين:** `{total_debit:,.2f}` | **إجمالي الدائن:** `{total_credit:,.2f}`")
     
-    # عرض الجدول بالأعمدة الستة المطلوبة
     df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
     st.dataframe(df_export, use_container_width=True)
     
-    # تحويل البيانات إلى Excel في الذاكرة المباشرة (In-Memory Buffer) لتنزيلها دون أخطاء
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Onyx_Entries')
