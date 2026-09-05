@@ -16,12 +16,10 @@ def init_db():
             analytical_account TEXT
         )
     ''')
-    # إضافة العمود الجديد تلقائياً في حال وجود القاعدة القديمة على السيرفر
     try:
         c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
     except sqlite3.OperationalError:
-        pass  # العمود موجود مسبقاً
-    
+        pass
     conn.commit()
     conn.close()
 
@@ -47,7 +45,7 @@ def get_person_info(name):
     row = c.fetchone()
     conn.close()
     if row:
-        return {"account": row[0], "analytical": row[1] if len(row) > 1 and row[1] else ""}
+        return {"account": str(row[0]), "analytical": str(row[1]) if (len(row) > 1 and row[1]) else ""}
     return None
 
 def get_all_persons():
@@ -67,29 +65,33 @@ def get_all_persons():
 
 init_db()
 
-st.set_page_config(page_title="قيود أونكس برو - SMS", layout="wide")
+st.set_page_config(page_title="نظام قيود أونكس برو - SMS", layout="wide")
 st.title("نظام استخراج قيود أونكس برو من رسائل الحوالات")
 
-# --- 2. إدارة دليل الأشخاص والحسابات ---
+# --- 2. إدارة دليل الأشخاص بالحسابات التحليلية ---
 st.sidebar.header("دليل حسابات أونكس للأشخاص")
 with st.sidebar.form("add_person_form"):
     new_name = st.text_input("اسم الشخص (كما يظهر بالرسالة)")
-    new_account = st.text_input("رقم الحساب في أونكس (مثال: 1221000)")
-    new_analytical = st.text_input("الحساب التحليلي (اختياري - مثال: 701)")
+    new_account = st.text_input("رقم الحساب الرئيسي (مثال: 1211013)")
+    new_analytical = st.text_input("الحساب التحليلي (مثال: 701)")
     submit_btn = st.form_submit_button("حفظ الحساب")
     
     if submit_btn and new_name and new_account:
         if add_person(new_name.strip(), new_account.strip(), new_analytical.strip()):
             st.success(f"تم حفظ {new_name} بنجاح!")
+            st.rerun()
         else:
             st.warning("الاسم مكرر في قاعدة البيانات.")
 
 st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 
-# --- 3. محرك تحليل نص الرسالة بفريمة أونكس برو ---
+# --- 3. محرك تحليل النص واستخراج الرصيد والبيان القياسي ---
 def parse_single_message(raw_text):
     entry_rows = []
-    today_str = pd.Timestamp.now().strftime('%d/%m/%Y')
+    
+    # استخراج الرصيد من النص إذا وجد
+    balance_match = re.search(r'رصيدك:\s*([\d\.,]+)', raw_text) or re.search(r'الرصيد:\s*([\d\.,]+)', raw_text)
+    balance_str = f" | الرصيد: {balance_match.group(1)}" if balance_match else ""
     
     # --- حالة 1: خصم / حوالة صادرة ---
     if "خصم" in raw_text:
@@ -106,56 +108,48 @@ def parse_single_message(raw_text):
             person_name = person_ref_match.group(1).strip()
             reference_no = person_ref_match.group(2).strip()
             
-            description = f"تحويل للمستلم {person_name} مرجع {reference_no}"
+            # البيان بأعلى القيد مع الرصيد
+            header_description = f"خصم تحويل للمستلم {person_name} مرجع {reference_no} ({currency}){balance_str}"
             
             p_info = get_person_info(person_name)
             debit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
+            # طرف مدين: حساب الشخص / الصندوق
             entry_rows.append({
-                "رقم المستند": reference_no,
-                "التاريخ": today_str,
                 "رقم الحساب": debit_account,
-                "الاسم": person_name if p_info else "صندوق جيبي",
                 "الحساب التحليلي": analytical_acc,
-                "البيان": description,
-                "العملة": currency,
-                "معدل الصرف": 1,
-                "مدين": amount,
-                "دائن": 0.0
+                "البيان": header_description,
+                "المدين": amount,
+                "الدائن": 0.0,
+                "رقم المرجع": reference_no
             })
             
+            # طرف مدين: عمولة تحويل إن وجدت
             if fee > 0:
                 entry_rows.append({
-                    "رقم المستند": reference_no,
-                    "التاريخ": today_str,
                     "رقم الحساب": "321003",
-                    "الاسم": "مصروفات العمولات البنكية",
                     "الحساب التحليلي": "",
                     "البيان": f"عمولة تحويل {person_name} مرجع {reference_no}",
-                    "العملة": currency,
-                    "معدل الصرف": 1,
-                    "مدين": fee,
-                    "دائن": 0.0
+                    "المدين": fee,
+                    "الدائن": 0.0,
+                    "رقم المرجع": reference_no
                 })
                 
+            # طرف دائن: الصرافة العالمية / البنك
             total_credit = amount + fee
             entry_rows.append({
-                "رقم المستند": reference_no,
-                "التاريخ": today_str,
                 "رقم الحساب": "1212032",
-                "الاسم": "الصرافة العالمية",
                 "الحساب التحليلي": "",
-                "البيان": description,
-                "العملة": currency,
-                "معدل الصرف": 1,
-                "مدين": 0.0,
-                "دائن": total_credit
+                "البيان": header_description,
+                "المدين": 0.0,
+                "الدائن": total_credit,
+                "رقم المرجع": reference_no
             })
 
     # --- حالة 2: إيداع / حوالة واردة ---
     elif "إيداع" in raw_text or "ايداع" in raw_text:
-        amount_match = re.search(r'إيداع\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text)
+        amount_match = re.search(r'إيداع\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text) or re.search(r'ايداع\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text)
         transfer_match = re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text)
         
         if amount_match and transfer_match:
@@ -166,48 +160,44 @@ def parse_single_message(raw_text):
             person_name = transfer_match.group(1).strip()
             reference_no = transfer_match.group(2).strip()
             
-            description = f"من {person_name} حوالة {reference_no}"
+            # البيان بأعلى القيد مع الرصيد
+            header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency}){balance_str}"
             
             p_info = get_person_info(person_name)
             credit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
+            # طرف مدين: الصرافة العالمية / البنك
             entry_rows.append({
-                "رقم المستند": reference_no,
-                "التاريخ": today_str,
                 "رقم الحساب": "1212032",
-                "الاسم": "الصرافة العالمية",
                 "الحساب التحليلي": "",
-                "البيان": description,
-                "العملة": currency,
-                "معدل الصرف": 1,
-                "مدين": amount,
-                "دائن": 0.0
+                "البيان": header_description,
+                "المدين": amount,
+                "الدائن": 0.0,
+                "رقم المرجع": reference_no
             })
             
+            # طرف دائن: حساب الشخص / الصندوق
             entry_rows.append({
-                "رقم المستند": reference_no,
-                "التاريخ": today_str,
                 "رقم الحساب": credit_account,
-                "الاسم": person_name if p_info else "صندوق جيبي",
                 "الحساب التحليلي": analytical_acc,
-                "البيان": description,
-                "العملة": currency,
-                "معدل الصرف": 1,
-                "مدين": 0.0,
-                "دائن": amount
+                "البيان": header_description,
+                "المدين": 0.0,
+                "الدائن": amount,
+                "رقم المرجع": reference_no
             })
             
     return entry_rows
 
-# --- 4. واجهة المستخدم ---
+# --- 4. واجهة رفع الملفات والتحليل ---
 tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "إدخال يدوي لرسالة"])
 
-all_final_rows = []
+if "all_entries" not in st.session_state:
+    st.session_state.all_entries = []
 
 with tab1:
     st.subheader("رفع ملف النسخة الاحتياطية للرسائل")
-    uploaded_file = st.file_uploader("اختر ملف XML المنسوخ من التطبيق:", type=["xml", "txt"])
+    uploaded_file = st.file_uploader("اختر ملف XML أو TXT المنسوخ:", type=["xml", "txt"])
     
     if uploaded_file is not None:
         messages_text = []
@@ -221,41 +211,71 @@ with tab1:
                     body = sms.get('body')
                     if body:
                         messages_text.append(body)
-            except Exception:
+            except Exception as e:
                 st.error("حدث خطأ أثناء قراءة ملف XML.")
         else:
             content = uploaded_file.read().decode("utf-8")
             messages_text = [m.strip() for m in re.split(r'={3,}|-{3,}|\n\s*\n', content) if m.strip()]
             
-        st.info(f"تم تحليل الملف وإيجاد {len(messages_text)} رسالة.")
+        st.info(f"تم العثور على {len(messages_text)} رسالة.")
         
-        if st.button("توليد قيود أونكس برو"):
+        if st.button("توليد ومعالجة القيود"):
+            parsed_rows = []
             for msg in messages_text:
                 rows = parse_single_message(msg)
-                all_final_rows.extend(rows)
+                parsed_rows.extend(rows)
+            st.session_state.all_entries = parsed_rows
+            st.success("تم تحويل جميع الرسائل إلى قيود محاسبية!")
 
 with tab2:
     st.subheader("إدخال رسالة واحدة")
-    single_msg = st.text_area("أدخل نص الرسالة:", height=120)
-    if st.button("تحويل إلى قيد"):
+    single_msg = st.text_area("أدخل نص الرسالة هنا:", height=120)
+    if st.button("تحويل الرسالة إلى قيد"):
         if single_msg.strip():
             rows = parse_single_message(single_msg)
-            all_final_rows.extend(rows)
+            st.session_state.all_entries.extend(rows)
+            st.success("تمت إضافة القيد بنجاح!")
 
-# --- 5. عرض القيود وتصدير الإكسل ---
-if all_final_rows:
-    df_result = pd.DataFrame(all_final_rows)
-    st.success(f"تم توليد {len(df_result)} أسطر قيود جاهزة للاستيراد!")
+# --- 5. شاشة المراجعة والبحث والفلترة لعدة قيود ---
+if st.session_state.all_entries:
+    st.markdown("---")
+    st.subheader("🔍 شاشة مراجعة والبحث في القيود المستخرجة")
     
-    st.dataframe(df_result, use_container_width=True)
+    df_all = pd.DataFrame(st.session_state.all_entries)
     
-    export_file_name = f"OnyxPro_Entries_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx"
-    df_result.to_excel(export_file_name, index=False)
+    # خيارات البحث والفلترة
+    col_search1, col_search2 = st.columns(2)
+    with col_search1:
+        search_term = st.text_input("بحث في البيان أو اسم الشخص أو المرجع:")
+    with col_search2:
+        filter_acc = st.text_input("فلترة حسب رقم الحساب:")
+        
+    df_filtered = df_all.copy()
+    if search_term:
+        df_filtered = df_filtered[df_filtered['البيان'].str.contains(search_term, case=False, na=False) | 
+                                  df_filtered['رقم المرجع'].str.contains(search_term, case=False, na=False)]
+    if filter_acc:
+        df_filtered = df_filtered[df_filtered['رقم الحساب'].astype(str).str.contains(filter_acc)]
+        
+    # عرض إحصائيات المراجعة
+    total_debit = df_filtered['المدين'].sum()
+    total_credit = df_filtered['الدائن'].sum()
+    st.markdown(f"**عدد الأسطر المعروضة:** `{len(df_filtered)}` | **إجمالي المدين:** `{total_debit:,.2f}` | **إجمالي الدائن:** `{total_credit:,.2f}`")
     
-    with open(export_file_name, "rb") as f:
+    # الجدول النهائي بالأعمدة المطلوبة تماماً
+    st.dataframe(df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']], use_container_width=True)
+    
+    # التصدير إلى Excel
+    export_filename = f"OnyxPro_Entries_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    
+    # حفظ الأعمدة المحددة
+    df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
+    df_export.to_excel(export_filename, index=False)
+    
+    with open(export_filename, "rb") as f:
         st.download_button(
-            label="تنزيل ملف الإكسل المطابق لشاشة أونكس برو",
+            label="📥 تنزيل ملف الإكسل النهائي (المطابق لشاشة أونكس برو)",
             data=f,
-            file_name=export_file_name,
+            file_name=export_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
