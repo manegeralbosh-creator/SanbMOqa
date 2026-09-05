@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import streamlit as st
 import xml.etree.ElementTree as ET
+import io
 
 # --- 1. تهيئة وترقية قاعدة البيانات تلقائياً ---
 def init_db():
@@ -89,7 +90,6 @@ st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 def parse_single_message(raw_text):
     entry_rows = []
     
-    # استخراج الرصيد من النص إذا وجد
     balance_match = re.search(r'رصيدك:\s*([\d\.,]+)', raw_text) or re.search(r'الرصيد:\s*([\d\.,]+)', raw_text)
     balance_str = f" | الرصيد: {balance_match.group(1)}" if balance_match else ""
     
@@ -108,14 +108,12 @@ def parse_single_message(raw_text):
             person_name = person_ref_match.group(1).strip()
             reference_no = person_ref_match.group(2).strip()
             
-            # البيان بأعلى القيد مع الرصيد
             header_description = f"خصم تحويل للمستلم {person_name} مرجع {reference_no} ({currency}){balance_str}"
             
             p_info = get_person_info(person_name)
             debit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
-            # طرف مدين: حساب الشخص / الصندوق
             entry_rows.append({
                 "رقم الحساب": debit_account,
                 "الحساب التحليلي": analytical_acc,
@@ -125,7 +123,6 @@ def parse_single_message(raw_text):
                 "رقم المرجع": reference_no
             })
             
-            # طرف مدين: عمولة تحويل إن وجدت
             if fee > 0:
                 entry_rows.append({
                     "رقم الحساب": "321003",
@@ -136,7 +133,6 @@ def parse_single_message(raw_text):
                     "رقم المرجع": reference_no
                 })
                 
-            # طرف دائن: الصرافة العالمية / البنك
             total_credit = amount + fee
             entry_rows.append({
                 "رقم الحساب": "1212032",
@@ -160,14 +156,12 @@ def parse_single_message(raw_text):
             person_name = transfer_match.group(1).strip()
             reference_no = transfer_match.group(2).strip()
             
-            # البيان بأعلى القيد مع الرصيد
             header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency}){balance_str}"
             
             p_info = get_person_info(person_name)
             credit_account = p_info["account"] if p_info else "1211013"
             analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
-            # طرف مدين: الصرافة العالمية / البنك
             entry_rows.append({
                 "رقم الحساب": "1212032",
                 "الحساب التحليلي": "",
@@ -177,7 +171,6 @@ def parse_single_message(raw_text):
                 "رقم المرجع": reference_no
             })
             
-            # طرف دائن: حساب الشخص / الصندوق
             entry_rows.append({
                 "رقم الحساب": credit_account,
                 "الحساب التحليلي": analytical_acc,
@@ -236,14 +229,13 @@ with tab2:
             st.session_state.all_entries.extend(rows)
             st.success("تمت إضافة القيد بنجاح!")
 
-# --- 5. شاشة المراجعة والبحث والفلترة لعدة قيود ---
+# --- 5. شاشة المراجعة والبحث وتنزيل الإكسل المباشر ---
 if st.session_state.all_entries:
     st.markdown("---")
     st.subheader("🔍 شاشة مراجعة والبحث في القيود المستخرجة")
     
     df_all = pd.DataFrame(st.session_state.all_entries)
     
-    # خيارات البحث والفلترة
     col_search1, col_search2 = st.columns(2)
     with col_search1:
         search_term = st.text_input("بحث في البيان أو اسم الشخص أو المرجع:")
@@ -257,25 +249,25 @@ if st.session_state.all_entries:
     if filter_acc:
         df_filtered = df_filtered[df_filtered['رقم الحساب'].astype(str).str.contains(filter_acc)]
         
-    # عرض إحصائيات المراجعة
     total_debit = df_filtered['المدين'].sum()
     total_credit = df_filtered['الدائن'].sum()
     st.markdown(f"**عدد الأسطر المعروضة:** `{len(df_filtered)}` | **إجمالي المدين:** `{total_debit:,.2f}` | **إجمالي الدائن:** `{total_credit:,.2f}`")
     
-    # الجدول النهائي بالأعمدة المطلوبة تماماً
-    st.dataframe(df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']], use_container_width=True)
+    # عرض الجدول بالأعمدة الستة المطلوبة
+    df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
+    st.dataframe(df_export, use_container_width=True)
     
-    # التصدير إلى Excel
+    # تحويل البيانات إلى Excel في الذاكرة المباشرة (In-Memory Buffer) لتنزيلها دون أخطاء
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_export.to_excel(writer, index=False, sheet_name='Onyx_Entries')
+    
+    buffer.seek(0)
     export_filename = f"OnyxPro_Entries_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx"
     
-    # حفظ الأعمدة المحددة
-    df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
-    df_export.to_excel(export_filename, index=False)
-    
-    with open(export_filename, "rb") as f:
-        st.download_button(
-            label="📥 تنزيل ملف الإكسل النهائي (المطابق لشاشة أونكس برو)",
-            data=f,
-            file_name=export_filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label="📥 تنزيل ملف الإكسل النهائي (المطابق لشاشة أونكس برو)",
+        data=buffer,
+        file_name=export_filename,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
