@@ -86,14 +86,22 @@ with st.sidebar.form("add_person_form"):
 
 st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 
-# --- 3. استخراج رقم الحوالة/المرجع من الرسالة مباشرة للفلترة ---
+# --- 3. استخراج رقم الحوالة/المرجع من الرسالة للفلترة ---
 def extract_ref_number(raw_text):
     ref_match = re.search(r'/\s*(\d+)', raw_text) or re.search(r'حوالة\s*(\d+)', raw_text)
     if ref_match:
         return int(ref_match.group(1))
     return None
 
-# --- 4. محرك تحليل النص واستخراج الرصيد والبيان القياسي ---
+# --- 4. دالة الفصل الذكي للرسائل المتصلة الملصقة دفعة واحدة ---
+def split_bulk_messages(text):
+    # تقسيم النص بناءً على الكلمات المفتاحية لبداية كل رسالة (خصم / إيداع / ايداع)
+    pattern = r'(?=(?:خصم|إيداع|ايداع)\s*[\d\.,]+)'
+    parts = re.split(pattern, text)
+    messages = [p.strip() for p in parts if p.strip()]
+    return messages
+
+# --- 5. محرك تحليل النص واستخراج القيود ---
 def parse_single_message(raw_text):
     entry_rows = []
     
@@ -189,7 +197,7 @@ def parse_single_message(raw_text):
             
     return entry_rows
 
-# --- 5. واجهة رفع الملفات واللصق الجماعي ---
+# --- 6. واجهة رفع الملفات واللصق الجماعي ---
 tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "لصق رسائل متعددة دفعة واحدة"])
 
 if "all_entries" not in st.session_state:
@@ -222,9 +230,9 @@ with tab1:
                 st.error("حدث خطأ أثناء قراءة ملف XML.")
         else:
             content = uploaded_file.read().decode("utf-8")
-            messages_text = [m.strip() for m in re.split(r'={3,}|-{3,}|\n\s*\n', content) if m.strip()]
+            messages_text = split_bulk_messages(content)
             
-        st.info(f"إجمالي الرسائل في الملف: {len(messages_text)} رسالة.")
+        st.info(f"إجمالي الرسائل المقروءة: {len(messages_text)} رسالة.")
         
         if st.button("توليد ومعالجة القيود من الملف"):
             parsed_rows = []
@@ -247,37 +255,35 @@ with tab1:
                 parsed_rows.extend(rows)
                 
             st.session_state.all_entries = parsed_rows
-            st.success(f"تم معالجة المستندات بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
+            st.success(f"تم معالجة الرسائل بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
 
 with tab2:
     st.subheader("إدخال/لصق مجموعة رسائل دفعة واحدة")
-    st.caption("قم بنسخ مجموعة الرسائل المطلوبة من جوالك ولصقها هنا معاً، وسيتم فصل كل رسالة عن الأخرى وتوليد قيودها تلقائياً بدون تداخل.")
+    st.caption("قم بنسخ جميع الرسائل المطلوبة من جوالك ولصقها هنا دفعة واحدة، وسيتعرف البرنامج تلقائياً على بدايات كل رسالة وينشئ قيودها بدون تداخل.")
     
-    bulk_msg = st.text_area("انسخ والصق نصوص الرسائل هنا:", height=250, placeholder="ضع الرسائل هنا...")
+    bulk_msg = st.text_area("انسخ والصق نصوص الرسائل هنا:", height=250, placeholder="ضع كل الرسائل المنسوخة هنا...")
     
     if st.button("تحويل جميع الرسائل الملصقة إلى قيود"):
         if bulk_msg.strip():
-            # تقسيم النص الملصق بحسب السطور الفارغة أو الفواصل
-            raw_messages = re.split(r'\n\s*\n|={3,}|-{3,}', bulk_msg)
+            # تفكيك النص الذكي بناءً على الكلمات المفتاحية
+            split_messages = split_bulk_messages(bulk_msg)
             
             parsed_rows = []
             msg_count = 0
             
-            for msg in raw_messages:
-                cleaned_msg = msg.strip()
-                if cleaned_msg:
-                    rows = parse_single_message(cleaned_msg)
-                    if rows:
-                        parsed_rows.extend(rows)
-                        msg_count += 1
+            for msg in split_messages:
+                rows = parse_single_message(msg)
+                if rows:
+                    parsed_rows.extend(rows)
+                    msg_count += 1
                         
             if parsed_rows:
                 st.session_state.all_entries.extend(parsed_rows)
-                st.success(f"تمت معالجة {msg_count} رسالة بنجاح وإضافة قيودها للجدول!")
+                st.success(f"تم التعرف على {msg_count} رسالة وتوليد قيودها بنجاح!")
             else:
                 st.warning("لم يتم العثور على صيغ حوالات معروفة في النص المنسوخ.")
 
-# --- 6. شاشة المراجعة وتنزيل الإكسل المباشر ---
+# --- 7. شاشة المراجعة وتنزيل الإكسل المباشر ---
 if st.session_state.all_entries:
     st.markdown("---")
     st.subheader("🔍 شاشة مراجعة والبحث في القيود المستخرجة")
@@ -304,7 +310,6 @@ if st.session_state.all_entries:
     df_export = df_filtered[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']]
     st.dataframe(df_export, use_container_width=True)
     
-    # تحويل البيانات إلى Excel في الذاكرة المباشرة (In-Memory Buffer) لتنزيلها دون أخطاء
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Onyx_Entries')
