@@ -1,21 +1,41 @@
 import io
 import re
-import pdfplumber
 import pandas as pd
 import streamlit as st
 
+# استيراد المكتبات بشكل آمن مع التعامل مع الأخطاء
+try:
+  import pdfplumber
+
+  PDFPLUMBER_AVAILABLE = True
+except ImportError:
+  PDFPLUMBER_AVAILABLE = False
+
+try:
+  from pypdf import PdfReader
+
+  PYPDF_AVAILABLE = True
+except ImportError:
+  PYPDF_AVAILABLE = False
+
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(
-    page_title="مُطابق أرقام الحوالات - عمود البيان",
-    page_icon="🎯",
-    layout="wide",
+    page_title="كاشف أرقام الحوالات المفقودة", page_icon="🚨", layout="wide"
 )
 
-st.title("🎯 كاشف أرقام الحوالات المفقودة (البحث في عمود البيان)")
+st.title("🚨 كاشف أرقام الحوالات غير المقيدة في كشف الحساب (PDF)")
 st.write(
-    "يستخرج الكود رقم الحوالة من الرسالة ويتحقق من وجوده حصراً داخل عمود"
-    " 'البيان' في كشف الحساب."
+    "يستخرج الكود رقم الحوالة من الرسائل النصية ويتحقق من وجوده حصراً في"
+    " البيانات المدخلة بعمود البيان بملف الـ PDF."
 )
+
+# التأكد من وجود المكتبات المطلوبة
+if not PDFPLUMBER_AVAILABLE and not PYPDF_AVAILABLE:
+  st.error(
+      "⚠️ يرجى تثبيت مكتبات قراءة الـ PDF عبر تشغيل هذا الأمر في الطرفية:"
+      " `pip install pdfplumber pypdf openpyxl pandas streamlit`"
+  )
+  st.stop()
 
 # --- 2. مدخلات البيانات ---
 col_text, col_file = st.columns([1, 1])
@@ -38,22 +58,25 @@ with col_file:
   )
 
 
-# --- 3. دالة استخراج رقم الحوالة من الرسائل ---
+# --- 3. دالة دقيقة لاستخراج رقم الحوالة من الرسالة ---
 def extract_transfer_number(text):
+  if not text or not isinstance(text, str):
+    return None
+
   # 1. رقم يسبق عبارة "رقم حوالتك"
-  match_before = re.search(r"(\d+)\s*رقم\s*حوالتك", text)
+  match_before = re.search(r'(\d+)\s*رقم\s*حوالتك', text)
   if match_before:
     return match_before.group(1).strip()
 
   # 2. رقم يأتي بعد كلمة "برقم" أو "رقم" أو "الرقم"
-  match_after = re.search(r"(?:برقم|رقم|الرقم)\s*:?\s*(\d+)", text)
+  match_after = re.search(r'(?:برقم|رقم|الرقم)\s*:?\s*(\d+)', text)
   if match_after:
     return match_after.group(1).strip()
 
   return None
 
 
-# --- 4. المعالجة واستخراج البيانات من عمود البيان ---
+# --- 4. معالجة الـ PDF ومطابقة البيانات ---
 if st.button(
     "🔍 بدء الفحص والمطابقة في عمود البيان",
     type="primary",
@@ -61,32 +84,45 @@ if st.button(
 ):
   if bulk_ref_text.strip() and uploaded_pdf is not None:
 
-    # أ) استخراج نصوص عمود "البيان" فقط باستخدام pdfplumber
-    pdf_details_text = ""
+    pdf_full_text = ""
+    pdf_bytes = uploaded_pdf.read()
 
-    with st.spinner(
-        "جاري تحليل كشف الحساب واستخراج البيانات من عمود البيان..."
-    ):
-      with pdfplumber.open(uploaded_pdf) as pdf:
-        for page in pdf.pages:
-          # استخراج الجداول من الصفحة
-          tables = page.extract_tables()
-          for table in tables:
-            for row in table:
-              if not row:
-                continue
+    with st.spinner("جاري قراءة وتحليل بيانات كشف الحساب..."):
+      # الطريقة الأولى: باستخدام pdfplumber لقراءة الجداول والأعمدة
+      if PDFPLUMBER_AVAILABLE:
+        try:
+          with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+              # استخراج نصوص الجداول
+              tables = page.extract_tables()
+              for table in tables:
+                for row in table:
+                  if row:
+                    # تجميع خلايا السطر للتأكد من شمول البيان والأرقام الملحقة
+                    row_clean = [
+                        str(cell).strip() for cell in row if cell is not None
+                    ]
+                    pdf_full_text += " ".join(row_clean) + "\n"
 
-              # البحث عن الخلية التي تمثل "البيان"
-              # في كشوفات أونكس تكون في العمود الأوسط (غالباً الفهرس 2 أو 3)
-              # دمج كل الخلايا النصية المكونة للشرح/البيان
-              row_str = " ".join([cell for cell in row if cell is not None])
-              pdf_details_text += row_str + "\n"
+              # إضافة نص الصفحة كاملاً للتأكد
+              page_raw = page.extract_text()
+              if page_raw:
+                pdf_full_text += page_raw + "\n"
+        except Exception as e:
+          st.warning(
+              "حدث تنبيه عند قراءة الجداول، جاري الانتقال لمُحرك القراءة"
+              " الاحتياطي..."
+          )
 
-          # إذا تعذر استخراج جدول، يتم أخذ كامل النص كخط حماية ثانٍ
-          if not tables:
-            pdf_details_text += (page.extract_text() or "") + "\n"
+      # الطريقة الثانية الاحتياطية: باستخدام pypdf إذا كان pdfplumber غير كافٍ
+      if len(pdf_full_text.strip()) < 10 and PYPDF_AVAILABLE:
+        pdf_reader = PdfReader(io.BytesIO(pdf_bytes))
+        for page in pdf_reader.pages:
+          text = page.extract_text()
+          if text:
+            pdf_full_text += text + "\n"
 
-    # ب) معالجة الرسائل ومقاطعتها مع نصوص عمود البيان
+    # معالجة الرسائل المقابلة
     raw_lines = [
         line.strip() for line in bulk_ref_text.splitlines() if line.strip()
     ]
@@ -95,18 +131,18 @@ if st.button(
     all_entries = []
 
     for line in raw_lines:
-      clean_line = re.sub(r"^\d+[\/\.-]\s*", "", line).strip()
+      clean_line = re.sub(r'^\d+[\/\.-]\s*', '', line).strip()
       ref_number = extract_transfer_number(clean_line)
 
       if ref_number:
-        # البحث الحصري عن رقم الحوالة داخل نصوص البيان
-        found_in_pdf = ref_number in pdf_details_text
+        # البحث عن الرقم المباشر داخل نص الكشف
+        found_in_pdf = ref_number in pdf_full_text
 
         entry_data = {
-            "رقم الحوالة المستخرج": ref_number,
-            "نص الرسالة كاملة": clean_line,
-            "الحالة": (
-                "✅ مقيدة بالبيان" if found_in_pdf else "❌ غير مقيدة بالبيان"
+            'رقم الحوالة المستخرج': ref_number,
+            'نص الرسالة كاملة': clean_line,
+            'الحالة': (
+                '✅ مقيدة بالبيان' if found_in_pdf else '❌ غير مقيدة بالبيان'
             ),
         }
 
@@ -114,64 +150,72 @@ if st.button(
 
         if not found_in_pdf:
           missing_entries.append({
-              "رقم الحوالة المفقود": ref_number,
-              "نص الرسالة كاملة": clean_line,
+              'رقم الحوالة المفقود': ref_number,
+              'نص الرسالة كاملة': clean_line,
           })
       else:
         all_entries.append({
-            "رقم الحوالة المستخرج": "⚠️ تعذر تحديد رقم الحوالة",
-            "نص الرسالة كاملة": clean_line,
-            "الحالة": "❌ خطأ بالصيغة",
+            'رقم الحوالة المستخرج': '⚠️ تعذر استخراج الرقم',
+            'نص الرسالة كاملة': clean_line,
+            'الحالة': '❌ لم ينطبق شرط الكلمات (برقم / رقم / رقم حوالتك)',
         })
 
-    # --- 5. عرض جدول الحوالات المفقودة ---
-    st.markdown("---")
+    # --- 5. عرض النتائج والجداول ---
+    st.markdown('---')
 
     df_missing = pd.DataFrame(missing_entries)
     df_all = pd.DataFrame(all_entries)
 
     total_input = len(all_entries)
     total_missing = len(missing_entries)
-    total_found = total_input - total_missing
+    total_found = (
+        total_input
+        - total_missing
+        - len(df_all[df_all['الحالة'].str.contains('تعذر')])
+    )
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("إجمالي الرسائل المدخلة", total_input)
-    c2.metric("حوالات مقيدة في البيان", total_found)
-    c3.metric("🚨 حوالات غير مقيدة (مفقودة)", total_missing)
+    c1.metric('إجمالي الرسائل المدخلة', total_input)
+    c2.metric('حوالات موجودة في الـ PDF', total_found)
+    c3.metric('🚨 حوالات مفقودة وغير مقيدة', total_missing)
 
     st.markdown(
-        "### 🚨 جدول أرقام الحوالات غير الموجودة في عمود البيان بـ PDF:"
+        '### 🚨 جدول أرقام الحوالات غير الموجودة في ملف الـ PDF (البيان):'
     )
 
     if not df_missing.empty:
       st.warning(
-          f"تم العثور على ({total_missing}) رقم حوالة غير مقيد في عمود البيان:"
+          f'تم العثور على ({total_missing}) رقم حوالة مفقود لم يظهر في كشف'
+          ' الحساب:'
       )
       st.dataframe(df_missing, use_container_width=True)
 
-      # تنزيل قائمة المفقودات بصيغة Excel
       excel_buf = io.BytesIO()
-      with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+      with pd.ExcelWriter(excel_buf, engine='openpyxl') as writer:
         df_missing.to_excel(
-            writer, index=False, sheet_name="Missing_Transfer_Numbers"
+            writer, index=False, sheet_name='Missing_Transfer_Numbers'
         )
       excel_buf.seek(0)
 
       st.download_button(
-          label="📥 تنزيل جدول الحوالات المفقودة فقط (Excel)",
+          label='📥 تنزيل جدول الحوالات المفقودة فقط (Excel)',
           data=excel_buf,
-          file_name=f"Missing_Transfers_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
-          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          type="primary",
+          file_name=(
+              'Missing_Transfers_'
+              f"{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx"
+          ),
+          mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          type='primary',
       )
     else:
       st.success(
-          "🎉 ممتاز! جميع أرقام الحوالات المذكورة بالرسائل موجودة ومقيدة"
-          " داخل عمود البيان بالـ PDF."
+          '🎉 جميع أرقام الحوالات المستخرجة من النافذة النصية موجودة ومقيدة'
+          ' بالكامل داخل الـ PDF!'
       )
 
-    with st.expander("📋 عرض التقرير الشامل لجميع الحركات"):
+    with st.expander('📋 اضغط هنا لاستعراض تقرير الفحص الكامل لجميع الرسائل'):
       st.dataframe(df_all, use_container_width=True)
 
   else:
-    st.error("⚠️ يرجى لصق الرسائل النصية ورفع ملف الـ PDF أولاً.")
+    st.error('⚠️ يرجى لصق الرسائل النصية ورفع ملف الـ PDF أولاً.')
+
