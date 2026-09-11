@@ -1,4 +1,4 @@
-import streamlit as st
+جوجل streamlit as st
 import pandas as pd
 import re
 import urllib.parse
