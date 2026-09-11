@@ -272,7 +272,7 @@ with tab2:
             current_idx = st.session_state["bulk_index"]
             current_cust = valid_bulk_customers[current_idx]
             
-            default_msg = "تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي لدينا وهو: [المبلغ] [العملة].\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
+            default_msg = "تحية طيبة من محلات البوش لقطع غيار الشاحنات.\nنود تذكيركم برصيد حسابكم المتبقي عليكم وهو: [المبلغ] [العملة].\nيرجى التكرم بتصفية الحساب، شاكرين تعاونكم وثقتكم بنا."
             
             debt_parts = []
             for curr, bal in current_cust["debts"].items():
