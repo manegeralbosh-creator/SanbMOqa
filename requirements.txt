@@ -12,3 +12,4 @@ rarfile
 pypdf
 easyocr
 openai
+pillow
