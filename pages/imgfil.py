@@ -16,14 +16,6 @@ st.write("التقط صورة للجدول (سواء كان مطبوعاً أو 
 st.sidebar.header("⚙️ الإعدادات")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key المجاني:", type="password")
 
-st.sidebar.markdown("""
----
-💡 **كيف تحصل على المفتاح المجاني؟**
-1. ادخل إلى [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. اضغط على **Create API key**.
-3. انسخ المفتاح وانصقه هنا.
-""")
-
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Google Gemini API في الشريط الجانبي لتفعيل الخدمة مجاناً.")
 
@@ -47,15 +39,8 @@ def extract_table_with_gemini(img_bytes, api_key):
     client = genai.Client(api_key=api_key)
     
     prompt = """
-    أنت خبير في التعرف الضوئي على الحروف (OCR) ومعالجة المستندات العربية والإنجليزية.
-    قم بتحليل صورة الجدول المرفقة واستخراج جميع البيانات المطبوعة والمكتوبة بخط اليد بدقة متناهية.
-    
-    تعليمات هامة:
-    1. استخرج كامل الصفوف والأعمدة الموجودة بالورقة.
-    2. حافظ على عناوين الأعمدة كما هي باللغة العربية أو الإنجليزية.
-    3. أرجع النتيجة حصراً بصيغة JSON صالح (JSON Array) بدون أي مقدمات أو شرح خارج نص الـ JSON.
-    
-    تنسيق الـ JSON المطلوب:
+    قم بتحليل صورة الجدول المرفقة واستخراج كافة البيانات المطبوعة والمكتوبة بخط اليد بدقة متناهية.
+    أرجع النتيجة حصراً بصيغة JSON Array بدون أي نص خارجي:
     [
         {"رقم الصنف": "...", "اسم الصنف": "...", "رقم الكود": "...", "التجزئة": "...", "الجملة": "..."},
         ...
@@ -63,7 +48,7 @@ def extract_table_with_gemini(img_bytes, api_key):
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-2.5-flash',  # تم تحديث اسم النموذج هنا
         contents=[
             prompt,
             types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
@@ -82,7 +67,7 @@ if image_bytes and gemini_api_key:
             try:
                 raw_response = extract_table_with_gemini(image_bytes, gemini_api_key)
                 
-                # تنظيف الاستجابة لضمان الحصول على JSON نقي
+                # تنظيف النص وتأطير JSON
                 cleaned_response = raw_response.strip()
                 if cleaned_response.startswith("```json"):
                     cleaned_response = cleaned_response[7:]
@@ -94,14 +79,12 @@ if image_bytes and gemini_api_key:
                 
                 parsed_data = json.loads(cleaned_response)
                 
-                # معالجة تفاصيل JSON
                 if isinstance(parsed_data, dict):
                     first_key = list(parsed_data.keys())[0]
                     rows = parsed_data[first_key]
                 else:
                     rows = parsed_data
                 
-                # إنشاء dataframe
                 df = pd.DataFrame(rows)
                 
                 st.success("تم استخراج البيانات بنجاح! 🎉")
