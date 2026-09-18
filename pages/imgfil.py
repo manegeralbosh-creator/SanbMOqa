@@ -3,8 +3,7 @@ import pandas as pd
 import json
 import io
 from PIL import Image
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 # إعداد واجهة الصفحة
 st.set_page_config(page_title="تحويل صور الجداول إلى Excel", layout="wide")
@@ -15,14 +14,6 @@ st.write("التقط صورة للجدول (سواء كان مطبوعاً أو 
 # الشريط الجانبي لإدخال المفتاح
 st.sidebar.header("⚙️ الإعدادات")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key المجاني:", type="password")
-
-st.sidebar.markdown("""
----
-💡 **كيف تحصل على المفتاح المجاني؟**
-1. ادخل إلى [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. اضغط على **Create API key**.
-3. انسخ المفتاح وانصقه هنا.
-""")
 
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Google Gemini API في الشريط الجانبي لتفعيل الخدمة مجاناً.")
@@ -42,16 +33,20 @@ else:
         image_bytes = uploaded_file.getvalue()
 
 
-# دالة إرسال الصورة إلى Gemini مع تجربة أسماء النماذج المتاحة
+# دالة إرسال الصورة إلى Gemini واستخراج الجداول
 def extract_table_with_gemini(img_bytes, api_key):
-    client = genai.Client(api_key=api_key)
+    # إعداد المفتاح
+    genai.configure(api_key=api_key)
+    
+    # تحويل البايتات إلى صورة Pillow
+    image = Image.open(io.BytesIO(img_bytes))
     
     prompt = """
     أنت خبير في التعرف الضوئي على الحروف (OCR) ومعالجة المستندات والأسعار وقطع الغيار.
     قم بتحليل صورة الجدول المرفقة واستخراج جميع البيانات المطبوعة والمكتوبة بخط اليد بدقة متناهية.
     
     تعليمات هامة:
-    1. استخرج كامل الصفوف والأعمدة الموجودة بالورقة (رقم الصنف، اسم الصنف، رقم الكود، التجزئة، الجملة، إلخ).
+    1. استخرج كامل الصفوف والأعمدة الموجودة بالورقة.
     2. حافظ على عناوين الأعمدة كما هي باللغة العربية أو الإنجليزية.
     3. أرجع النتيجة حصراً بصيغة JSON Array بدون أي مقدمات أو شرح خارج نص الـ JSON.
     
@@ -62,25 +57,11 @@ def extract_table_with_gemini(img_bytes, api_key):
     ]
     """
     
-    # قائمة بالنماذج المتاحة للتجربة التلقائية وتفادي خطأ 404
-    models_to_try = ['models/gemini-2.5-flash', 'gemini-2.5-flash', 'models/gemini-1.5-flash', 'gemini-1.5-flash']
+    # استخدام النموذج المستقر بأسلوبه الصحيح
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    response = model.generate_content([prompt, image])
     
-    last_error = None
-    for model_name in models_to_try:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[
-                    prompt,
-                    types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
-                ]
-            )
-            return response.text
-        except Exception as e:
-            last_error = e
-            continue
-            
-    raise last_error
+    return response.text
 
 
 # معالجة الصورة عند الضغط على الزر
@@ -104,14 +85,12 @@ if image_bytes and gemini_api_key:
                 
                 parsed_data = json.loads(cleaned_response)
                 
-                # معالجة تفاصيل JSON
                 if isinstance(parsed_data, dict):
                     first_key = list(parsed_data.keys())[0]
                     rows = parsed_data[first_key]
                 else:
                     rows = parsed_data
                 
-                # إنشاء dataframe
                 df = pd.DataFrame(rows)
                 
                 st.success("تم استخراج البيانات بنجاح! 🎉")
