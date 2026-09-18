@@ -11,3 +11,4 @@ google-auth
 rarfile
 pypdf
 easyocr
+openai
