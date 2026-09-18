@@ -2,21 +2,30 @@ import streamlit as st
 import pandas as pd
 import json
 import io
-import base64
-from openai import OpenAI
+from PIL import Image
+from google import genai
+from google.genai import types
 
 # إعداد واجهة الصفحة
-st.set_page_config(page_title="تحويل المستندات إلى Excel", layout="wide")
+st.set_page_config(page_title="تحويل صور الجداول إلى Excel", layout="wide")
 
-st.title("📊 محول صور الجداول إلى Excel")
-st.write("التقط صورة للجدول (مطبوع أو بخط اليد) وسيتم التعرف عليه واستخراج البيانات إلى ملف Excel.")
+st.title("📊 محول صور الجداول إلى Excel (مجاني عبر Google Gemini)")
+st.write("التقط صورة للجدول (سواء كان مطبوعاً أو بخط اليد) وسيتم التعرف عليه واستخراج البيانات إلى ملف Excel بكل دقة.")
 
 # الشريط الجانبي لإدخال المفتاح
-st.sidebar.header("الإعدادات")
-api_key = st.sidebar.text_input("أدخل مفتاح OpenAI API Key:", type="password")
+st.sidebar.header("⚙️ الإعدادات")
+gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key المجاني:", type="password")
 
-if not api_key:
-    st.warning("⚠️ يرجى إدخال مفتاح OpenAI API في الشريط الجانبي لتفعيل الخدمة.")
+st.sidebar.markdown("""
+---
+💡 **كيف تحصل على المفتاح المجاني؟**
+1. ادخل إلى [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. اضغط على **Create API key**.
+3. انسخ المفتاح وانصقه هنا.
+""")
+
+if not gemini_api_key:
+    st.warning("⚠️ يرجى إدخال مفتاح Google Gemini API في الشريط الجانبي لتفعيل الخدمة مجاناً.")
 
 # اختيار مصدر الصورة
 source_option = st.radio("اختر طريقة إدخال الصورة:", ["استخدام الكاميرا 📷", "رفع صورة من الجهاز 📁"])
@@ -32,72 +41,77 @@ else:
     if uploaded_file:
         image_bytes = uploaded_file.getvalue()
 
-# دالة إرسال الصورة للذكاء الاصطناعي واستخراج البيانات
-def extract_table_from_image(img_bytes, key):
-    client = OpenAI(api_key=key)
-    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+
+# دالة إرسال الصورة إلى Gemini واستخراج الجداول
+def extract_table_with_gemini(img_bytes, api_key):
+    client = genai.Client(api_key=api_key)
     
     prompt = """
-    قم بتحليل صورة الجدول المرفقة واستخراج كافة البيانات الموجودة بها بدقة عالية.
-    تنبيه: الجدول يحتوي على نصوص مطابقة وأرقام/ملاحظات بخط اليد.
+    أنت خبير في التعرف الضوئي على الحروف (OCR) ومعالجة المستندات العربية والإنجليزية.
+    قم بتحليل صورة الجدول المرفقة واستخراج جميع البيانات المطبوعة والمكتوبة بخط اليد بدقة متناهية.
     
-    أرجع النتيجة بصيغة JSON حصراً على شكل قائمة من الكائنات (List of Objects)، حيث يمثل كل كائن صفاً في الجدول وترتبط المفاتيح بأسماء الأعمدة باللغة العربية كالتالي:
+    تعليمات هامة:
+    1. استخرج كامل الصفوف والأعمدة الموجودة بالورقة.
+    2. حافظ على عناوين الأعمدة كما هي باللغة العربية أو الإنجليزية.
+    3. أرجع النتيجة حصراً بصيغة JSON صالح (JSON Array) بدون أي مقدمات أو شرح خارج نص الـ JSON.
+    
+    تنسيق الـ JSON المطلوب:
     [
-      {"رقم الصنف": "...", "اسم الصنف": "...", "رقم الكود": "...", "التجزئة": "...", "الجملة": "..."},
-      ...
+        {"رقم الصنف": "...", "اسم الصنف": "...", "رقم الكود": "...", "التجزئة": "...", "الجملة": "..."},
+        ...
     ]
     """
     
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                    }
-                ]
-            }
-        ],
-        max_tokens=3000
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=[
+            prompt,
+            types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
+        ]
     )
     
-    return response.choices[0].message.content
+    return response.text
 
-# تنفيذ المعالجة وتوليد Excel
-if image_bytes and api_key:
-    st.image(image_bytes, caption="الصورة المختارة", width=400)
+
+# معالجة الصورة عند الضغط على الزر
+if image_bytes and gemini_api_key:
+    st.image(image_bytes, caption="الصورة المختارة", width=450)
     
     if st.button("🚀 استخراج البيانات وتحويل لـ Excel", type="primary"):
-        with st.spinner("جاري تحليل الجدول والخط اليدوي..."):
+        with st.spinner("جاري قراءة البيانات المطبوعة والخط اليدوي بواسطة الذكاء الاصطناعي..."):
             try:
-                raw_response = extract_table_from_image(image_bytes, api_key)
+                raw_response = extract_table_with_gemini(image_bytes, gemini_api_key)
                 
-                # تنظيف استجابة النظام للحصول على JSON صالح
-                cleaned_response = raw_response.strip().replace("```json", "").replace("```", "")
+                # تنظيف الاستجابة لضمان الحصول على JSON نقي
+                cleaned_response = raw_response.strip()
+                if cleaned_response.startswith("```json"):
+                    cleaned_response = cleaned_response[7:]
+                if cleaned_response.startswith("```"):
+                    cleaned_response = cleaned_response[3:]
+                if cleaned_response.endswith("```"):
+                    cleaned_response = cleaned_response[:-3]
+                cleaned_response = cleaned_response.strip()
+                
                 parsed_data = json.loads(cleaned_response)
                 
-                # التعامل مع هيكلية البيانات المرجعة
+                # معالجة تفاصيل JSON
                 if isinstance(parsed_data, dict):
                     first_key = list(parsed_data.keys())[0]
                     rows = parsed_data[first_key]
                 else:
                     rows = parsed_data
                 
-                # إنشاء جدول البيانات
+                # إنشاء dataframe
                 df = pd.DataFrame(rows)
                 
                 st.success("تم استخراج البيانات بنجاح! 🎉")
-                st.subheader("عرض البيانات المستخرجة:")
+                st.subheader("📋 عرض الجدول المستخرج:")
                 st.dataframe(df, use_container_width=True)
                 
                 # تحويل الجدول إلى ملف Excel للتنزيل
                 excel_io = io.BytesIO()
                 with pd.ExcelWriter(excel_io, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name='البيانات')
+                    df.to_excel(writer, index=False, sheet_name='البيانات المستخرجة')
                 
                 st.download_button(
                     label="📥 تحميل ملف Excel (.xlsx)",
@@ -107,4 +121,4 @@ if image_bytes and api_key:
                 )
                 
             except Exception as e:
-                st.error(f"حدث خطأ أثناء استخراج البيانات: {str(e)}")
+                st.error(f"حدث خطأ أثناء معالجة الصورة: {str(e)}")
