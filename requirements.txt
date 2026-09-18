@@ -13,4 +13,4 @@ pypdf
 easyocr
 openai
 pillow
-google-genai
+google-generativeai
