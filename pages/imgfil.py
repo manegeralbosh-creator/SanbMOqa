@@ -16,14 +16,6 @@ st.write("التقط صورة للجدول (سواء كان مطبوعاً أو 
 st.sidebar.header("⚙️ الإعدادات")
 gemini_api_key = st.sidebar.text_input("أدخل مفتاح Gemini API Key المجاني:", type="password")
 
-st.sidebar.markdown("""
----
-💡 **كيف تحصل على المفتاح المجاني؟**
-1. ادخل إلى [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. اضغط على **Create API key**.
-3. انسخ المفتاح وانصقه هنا.
-""")
-
 if not gemini_api_key:
     st.warning("⚠️ يرجى إدخال مفتاح Google Gemini API في الشريط الجانبي لتفعيل الخدمة مجاناً.")
 
@@ -62,7 +54,7 @@ def extract_table_with_gemini(img_bytes, api_key):
     ]
     """
     
-    # تم التحديث إلى النموذج الموصى به رسمياً: gemini-2.5-flash
+    # اسم النموذج المحدد والمطلوب في الرسالة
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=[
@@ -95,14 +87,12 @@ if image_bytes and gemini_api_key:
                 
                 parsed_data = json.loads(cleaned_response)
                 
-                # معالجة تفاصيل JSON
                 if isinstance(parsed_data, dict):
                     first_key = list(parsed_data.keys())[0]
                     rows = parsed_data[first_key]
                 else:
                     rows = parsed_data
                 
-                # إنشاء dataframe
                 df = pd.DataFrame(rows)
                 
                 st.success("تم استخراج البيانات بنجاح! 🎉")
