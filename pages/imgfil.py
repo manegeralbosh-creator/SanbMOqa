@@ -42,7 +42,7 @@ else:
         image_bytes = uploaded_file.getvalue()
 
 
-# دالة إرسال الصورة إلى Gemini واستخراج الجداول
+# دالة إرسال الصورة إلى Gemini مع تجربة أسماء النماذج المتاحة
 def extract_table_with_gemini(img_bytes, api_key):
     client = genai.Client(api_key=api_key)
     
@@ -53,7 +53,7 @@ def extract_table_with_gemini(img_bytes, api_key):
     تعليمات هامة:
     1. استخرج كامل الصفوف والأعمدة الموجودة بالورقة (رقم الصنف، اسم الصنف، رقم الكود، التجزئة، الجملة، إلخ).
     2. حافظ على عناوين الأعمدة كما هي باللغة العربية أو الإنجليزية.
-    3. أرجع النتيجة حصراً بصيغة JSON Array بدون أي مقدمات أو شرح أو علامات markdown غير صالحة.
+    3. أرجع النتيجة حصراً بصيغة JSON Array بدون أي مقدمات أو شرح خارج نص الـ JSON.
     
     تنسيق الـ JSON المطلوب:
     [
@@ -62,16 +62,25 @@ def extract_table_with_gemini(img_bytes, api_key):
     ]
     """
     
-    # اسم النموذج المحدث
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=[
-            prompt,
-            types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
-        ]
-    )
+    # قائمة بالنماذج المتاحة للتجربة التلقائية وتفادي خطأ 404
+    models_to_try = ['models/gemini-2.5-flash', 'gemini-2.5-flash', 'models/gemini-1.5-flash', 'gemini-1.5-flash']
     
-    return response.text
+    last_error = None
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
+                ]
+            )
+            return response.text
+        except Exception as e:
+            last_error = e
+            continue
+            
+    raise last_error
 
 
 # معالجة الصورة عند الضغط على الزر
