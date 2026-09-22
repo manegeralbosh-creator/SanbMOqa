@@ -1,107 +1,66 @@
 import re
-import tkinter as tk
-from tkinter import ttk
+import pandas as pd
+import streamlit as st
 
 
 def extract_numbers(text):
-    # استخراج كافة الأرقام المقبولة كأرقام حوالات (أرقام بطول 3 خانات أو أكثر)
+    # استخراج كافة أرقام الحوالات (3 أرقام أو أكثر)
+    if not text:
+        return set()
     return set(re.findall(r"\b\d{3,}\b", text))
 
 
-def process_reconciliation():
-    # الحصول على النصوص من المربعين
-    acc_text = text_accountant.get("1.0", tk.END)
-    alalamiya_text = text_alalamiya.get("1.0", tk.END)
+st.set_page_config(page_title="مطابقة الحوالات", layout="wide")
 
-    # استخراج أرقام الحوالات
-    acc_ids = extract_numbers(acc_text)
-    alalamiya_ids = extract_numbers(alalamiya_text)
+st.title("📊 برنامج مطابقة الحوالات المالية")
+st.write("قم بوضع أرقام الحوالات في النافذتين للمطابقة وإخفاء المتشابهات.")
 
-    # الحوالات المطابقة (الموجودة في الطرفين)
-    matched = acc_ids.intersection(alalamiya_ids)
+# إنشاء عمودين للنوافذ
+col1, col2 = st.columns(2)
 
-    # غير المطابقة (الموجودة في أحد الطرفين فقط)
-    unmatched_acc = acc_ids - matched
-    unmatched_alalamiya = alalamiya_ids - matched
-
-    # مسح النتائج السابقة
-    text_result_acc.delete("1.0", tk.END)
-    text_result_alalamiya.delete("1.0", tk.END)
-
-    # عرض الحوالات غير المطابقة
-    text_result_acc.insert(
-        tk.END,
-        "\n".join(sorted(unmatched_acc)) if unmatched_acc else "لا يوجد",
-    )
-    text_result_alalamiya.insert(
-        tk.END,
-        "\n".join(sorted(unmatched_alalamiya))
-        if unmatched_alalamiya
-        else "لا يوجد",
+with col1:
+    st.subheader("🏢 نافذة المحاسب")
+    acc_input = st.text_area(
+        "ضع حوالات المحاسب هنا:", height=200, key="accountant"
     )
 
-    lbl_status.config(
-        text=f"تمت المطابقة! عدد الحوالات المتطابقة المخفية: {len(matched)}"
+with col2:
+    st.subheader("🌐 نافذة العالمية")
+    alalamiya_input = st.text_area(
+        "ضع حوالات العالمية هنا:", height=200, key="alalamiya"
     )
-
-
-# إنشاء النافذة الرئيسية
-root = tk.Tk()
-root.title("نظام مطابقة الحوالات")
-root.geometry("800x600")
-
-# العنوان الرئيسي
-ttk.Label(
-    root, text="برنامج مطابقة الحوالات المالية", font=("Arial", 16, "bold")
-).pack(pady=10)
-
-# الإدخال (المحاسب والعالمية)
-frame_inputs = ttk.Frame(root)
-frame_inputs.pack(fill="both", expand=True, padx=10, pady=5)
-
-# نافذة المحاسب
-frame_acc = ttk.LabelFrame(frame_inputs, text=" نافذة المحاسب ")
-frame_acc.pack(side="left", fill="both", expand=True, padx=5)
-text_accountant = tk.Text(frame_acc, width=30, height=12)
-text_accountant.pack(fill="both", expand=True, padx=5, pady=5)
-
-# نافذة العالمية
-frame_alalamiya = ttk.LabelFrame(frame_inputs, text=" نافذة العالمية ")
-frame_alalamiya.pack(side="right", fill="both", expand=True, padx=5)
-text_alalamiya = tk.Text(frame_alalamiya, width=30, height=12)
-text_alalamiya.pack(fill="both", expand=True, padx=5, pady=5)
 
 # زر المطابقة
-btn_match = ttk.Button(
-    root, text="إجراء المطابقة", command=process_reconciliation
-)
-btn_match.pack(pady=10)
+if st.button("⚡ إجراء المطابقة", type="primary"):
+    acc_ids = extract_numbers(acc_input)
+    alalamiya_ids = extract_numbers(alalamiya_input)
 
-lbl_status = ttk.Label(
-    root,
-    text="ضع أرقام الحوالات واضغط على إجراء المطابقة",
-    font=("Arial", 10, "italic"),
-)
-lbl_status.pack()
+    # الحوالات المتطابقة
+    matched = acc_ids.intersection(alalamiya_ids)
 
-# عرض النتائج
-frame_results = ttk.LabelFrame(
-    root, text=" الحوالات غير المطابقة (الفرق بين النافذتين) "
-)
-frame_results.pack(fill="both", expand=True, padx=10, pady=10)
+    # غير المطابقة
+    unmatched_acc = sorted(list(acc_ids - matched))
+    unmatched_alalamiya = sorted(list(alalamiya_ids - matched))
 
-# نتائج المحاسب
-frame_res_acc = ttk.LabelFrame(frame_results, text=" متبقي المحاسب ")
-frame_res_acc.pack(side="left", fill="both", expand=True, padx=5)
-text_result_acc = tk.Text(frame_res_acc, width=30, height=8, fg="red")
-text_result_acc.pack(fill="both", expand=True, padx=5, pady=5)
+    st.success(
+        f"تمت المطابقة بنجاح! تم إخفاء **{len(matched)}** حوالة متطابقة."
+    )
 
-# نتائج العالمية
-frame_res_alalamiya = ttk.LabelFrame(frame_results, text=" متبقي العالمية ")
-frame_res_alalamiya.pack(side="right", fill="both", expand=True, padx=5)
-text_result_alalamiya = tk.Text(
-    frame_res_alalamiya, width=30, height=8, fg="red"
-)
-text_result_alalamiya.pack(fill="both", expand=True, padx=5, pady=5)
+    st.divider()
+    st.subheader("⚠️ الحوالات غير المطابقة (الفرق بين النافذتين)")
 
-root.mainloop()
+    res_col1, res_col2 = st.columns(2)
+
+    with res_col1:
+        st.warning(f"متبقي المحاسب ({len(unmatched_acc)})")
+        if unmatched_acc:
+            st.write(unmatched_acc)
+        else:
+            st.info("لا توجد فروقات في نافذة المحاسب")
+
+    with res_col2:
+        st.warning(f"متبقي العالمية ({len(unmatched_alalamiya)})")
+        if unmatched_alalamiya:
+            st.write(unmatched_alalamiya)
+        else:
+            st.info("لا توجد فروقات في نافذة العالمية")
