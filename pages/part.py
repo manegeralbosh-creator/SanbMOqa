@@ -1,153 +1,138 @@
+import urllib.parse
 import pandas as pd
+import requests
 import streamlit as st
 
 # إعدادات الصفحة
 st.set_page_config(
-    page_title="كتالوج قطع غيار الشاحنات الذكي",
+    page_title="كتالوج الشاحنات - البحث في المواقع والكتالوجات",
     layout="wide",
     page_icon="🚛",
 )
 
-# 1. قاعدة بيانات نموذجية لكتالوج واقعي (يمكن استبدالها بملف Excel بأسطر محدودة)
-# في التطبيق الحقيقي سنقوم بـ: df = pd.read_excel('truck_parts_catalog.xlsx')
-data = [
+st.title("🚛 تطبيق البحث الذكي في كتالوجات ومواقع قطع غيار الشاحنات")
+st.caption(
+    "ابحث في قاعدة بياناتك المحلية أو ابحث مباشرة في الكتالوجات والمواقع العالمية (Volvo, Actros, Scania...)"
+)
+
+# 1. قاعدة البيانات المحلية السريعة
+local_data = [
     {
         "اسم القطعة": "فلتر زيت",
         "النوع": "Volvo",
-        "الموديل": "FH16 / FH12",
+        "الموديل": "FH16",
         "رقم الوكالة (OEM)": "21707133",
-        "الشركات البديلة (Cross Reference)": "Hengst: H300W01 | Mann: W 11102/34 | Donaldson: P550425",
-        "صورة القطعة": "https://via.placeholder.com/250x180.png?text=Volvo+21707133",
+        "الشركات البديلة": "Hengst: H300W01 | Mann: W 11102/34",
+        "صورة القطعة": "https://via.placeholder.com/200x150.png?text=21707133",
     },
     {
         "اسم القطعة": "فلتر زيت",
         "النوع": "Mercedes Actros",
-        "الموديل": "MP4 / Euro 6",
+        "الموديل": "MP4",
         "رقم الوكالة (OEM)": "A4711800209",
-        "الشركات البديلة (Cross Reference)": "Hengst: E500H D129 | Mann: HU 12 001 x | Knecht: OX 823D",
-        "صورة القطعة": "https://via.placeholder.com/250x180.png?text=Actros+A4711800209",
-    },
-    {
-        "اسم القطعة": "فلتر جفاف (Air Dryer)",
-        "النوع": "Volvo",
-        "الموديل": "FH12 / FM",
-        "رقم الوكالة (OEM)": "20558781",
-        "الشركات البديلة (Cross Reference)": "Wabco: 4324102227 | Hengst: T250W | Knorr: II19483",
-        "صورة القطعة": "https://via.placeholder.com/250x180.png?text=Volvo+20558781",
-    },
-    {
-        "اسم القطعة": "فلتر ديزل",
-        "النوع": "Iveco",
-        "الموديل": "Stralis / Trakker",
-        "رقم الوكالة (OEM)": "504033400",
-        "الشركات البديلة (Cross Reference)": "Mann: WK 940/20 x | Bosch: F026402008",
-        "صورة القطعة": "https://via.placeholder.com/250x180.png?text=Iveco+504033400",
-    },
-    {
-        "اسم القطعة": "طقم كلتش (Clutch Kit)",
-        "النوع": "Mercedes Actros",
-        "الموديل": "MP2 / MP3",
-        "رقم الوكالة (OEM)": "A0222506801",
-        "الشركات البديلة (Cross Reference)": "Sachs: 3400700343 | Valeo: 827250",
-        "صورة القطعة": "https://via.placeholder.com/250x180.png?text=Actros+Clutch",
+        "الشركات البديلة": "Hengst: E500H D129 | Mann: HU 12 001 x",
+        "صورة القطعة": "https://via.placeholder.com/200x150.png?text=A4711800209",
     },
 ]
+df_local = pd.DataFrame(local_data)
 
-df = pd.DataFrame(data)
-
-# عنوان التطبيق
-st.title("🚛 كتالوج واستعلام قطع غيار الشاحنات (OEM & البدائل)")
-st.caption(
-    "ابحث برقم القطعة، أرقام البدائل (Hengst, Mann)، اسم القطعة، أو النوع والموديل."
+# 2. حقل البحث
+query = st.text_input(
+    "🔎 أدخل رقم القطعة OEM، رقم بديل (Hengst/Mann)، أو اسم القطعة:",
+    placeholder="مثال: 21707133 أو A4711800209 أو فلتر زيت...",
 )
+
+col_brand, col_model = st.columns(2)
+with col_brand:
+    brand = st.selectbox(
+        "اختر الماركة (اختر الكل للبحث الشامل):",
+        ["الكل", "Volvo", "Mercedes Actros", "Iveco", "MAN", "Scania", "DAF"],
+    )
+with col_model:
+    model = st.text_input("الموديل (اختياري):", placeholder="مثال: FH12, MP4...")
 
 st.divider()
 
-# 🔍 2. شريط البحث السريع والذكي (Search Bar)
-search_query = st.text_input(
-    "🔎 **شريط البحث الشامل:** (أدخل رقم الوكالة OEM، رقم بديل مثل Hengst/Mann، أو اسم القطعة)",
-    placeholder="مثال: 21707133 أو H300W01 أو فلتر زيت أو Actros...",
+# tab1: البحث المحلي | tab2: البحث في الكتالوجات والمواقع العالمية
+tab1, tab2 = st.tabs(
+    ["📦 الكتالوج المحلي", "🌐 البحث في الكتالوجات والمواقع العالمية"]
 )
 
-st.markdown("### أو تصفية البحث عبر الاختيارات:")
-
-# 3. القوائم المنسدلة للفلترة المتقدمة
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    part_filter = st.selectbox(
-        "اسم القطعة:", ["الكل"] + sorted(list(df["اسم القطعة"].unique()))
-    )
-with col2:
-    brand_filter = st.selectbox(
-        "النوع (الشركة):", ["الكل"] + sorted(list(df["النوع"].unique()))
-    )
-with col3:
-    # تصفية الموديلات بحسب النوع
-    if brand_filter != "الكل":
-        filtered_models = df[df["النوع"] == brand_filter]["الموديل"].unique()
+with tab1:
+    if query:
+        q = query.strip().lower()
+        results = df_local[
+            df_local["رقم الوكالة (OEM)"].str.lower().str.contains(q)
+            | df_local["الشركات البديلة"].str.lower().str.contains(q)
+            | df_local["اسم القطعة"].str.lower().str.contains(q)
+        ]
+        if not results.empty:
+            for _, row in results.iterrows():
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.subheader(f"{row['اسم القطعة']} - {row['النوع']}")
+                    st.write(f"**رقم الوكالة:** `{row['رقم الوكالة (OEM)']}`")
+                    st.write(f"**البدائل:** {row['الشركات البديلة']}")
+                with c2:
+                    st.image(row["صورة القطعة"])
+        else:
+            st.info("لم يتم العثور على القطعة في الكتالوج المحلي. انتقل لتبويب (البحث في المواقع العالمية).")
     else:
-        filtered_models = df["الموديل"].unique()
-    model_filter = st.selectbox(
-        "الموديل:", ["الكل"] + sorted(list(filtered_models))
-    )
+        st.dataframe(df_local, use_container_width=True)
 
-# 4. فلترة البيانات بناءً على البحث النصي والاختيارات
-results_df = df.copy()
+with tab2:
+    st.subheader("🔗 البحث المباشر في أضخم Kتالوجات ومواقع شاحنات العالم")
 
-# الفلترة بالشريط النصي للبحث
-if search_query:
-    q = search_query.strip().lower()
-    results_df = results_df[
-        results_df["اسم القطعة"].str.lower().str.contains(q)
-        | results_df["النوع"].str.lower().str.contains(q)
-        | results_df["الموديل"].str.lower().str.contains(q)
-        | results_df["رقم الوكالة (OEM)"].str.lower().str.contains(q)
-        | results_df["الشركات البديلة (Cross Reference)"]
-        .str.lower()
-        .str.contains(q)
-    ]
+    search_term = query if query else f"{brand if brand != 'الكل' else ''} {model}"
 
-# الفلترة بالقوائم المنسدلة
-if part_filter != "الكل":
-    results_df = results_df[results_df["اسم القطعة"] == part_filter]
-if brand_filter != "الكل":
-    results_df = results_df[results_df["النوع"] == brand_filter]
-if model_filter != "الكل":
-    results_df = results_df[results_df["الموديل"] == model_filter]
+    if search_term.strip():
+        encoded_query = urllib.parse.quote(search_term)
 
-st.divider()
+        st.markdown(f"### 🎯 روابط البحث السريع للقطعة/الرقم: `{search_term}`")
 
-# 5. عرض النتائج
-st.subheader(f"📋 نتائج البحث ({len(results_df)} قطعة)")
+        c1, c2, c3 = st.columns(3)
 
-if not results_df.empty:
-    for idx, row in results_df.iterrows():
-        with st.container():
-            c1, c2 = st.columns([2, 1])
+        with c1:
+            st.markdown("#### 🚚 كتالوجات قطع الشاحنات")
+            # موقع FinditParts لشاحنات الفولفو والأكتروس
+            st.link_button(
+                "🌐 FinditParts (أمريكا والبدائل)",
+                f"https://www.finditparts.com/search?utf8=%E2%9C%93&key={encoded_query}",
+            )
+            # موقع 7zap الكتالوجات الأصلية بالـ VIN والـ OEM
+            st.link_button(
+                "📐 7zap Truck OEM Catalogs",
+                f"https://7zap.com/en/catalog/truck/?search={encoded_query}",
+            )
 
-            with c1:
-                st.markdown(f"### ⚙️ {row['اسم القطعة']} - {row['النوع']}")
-                st.write(f"**الموديل المتوافق:** {row['الموديل']}")
-                st.markdown(
-                    f"**رقم الوكالة الأصلي (OEM):** `{row['رقم الوكالة (OEM)']}`"
-                )
+        with c2:
+            st.markdown("#### 🇩🇪 مواقع البدائل والأرقام الأوروبية")
+            # AutoDoc أوروبا للقطع والبدائل
+            st.link_button(
+                "🛠️ AutoDoc Truck Parts",
+                f"https://www.autodoc.co.uk/search?keyword={encoded_query}",
+            )
+            # Knorr-Bremse / Wabco
+            st.link_button(
+                "🔍 Google Images (صور ورسومات القطعة)",
+                f"https://www.google.com/search?tbm=isch&q={encoded_query}+truck+part+OEM",
+            )
 
-                st.markdown("**الأرقام البديلة (Cross Reference):**")
-                # تنسيق البدائل لعرضها بشكل واضح
-                alternatives = row["الشركات البديلة (Cross Reference)"].split(
-                    "|"
-                )
-                for alt in alternatives:
-                    st.info(f"🔹 {alt.strip()}")
+        with c3:
+            st.markdown("#### 🏭 كتالوجات الفلاتر والبدائل العالمية")
+            # Kتالوج Hengst
+            st.link_button(
+                "🟡 Hengst Filter Catalog",
+                f"https://www.hengst.com/en/online-catalog/search/?q={encoded_query}",
+            )
+            # Kتالوج Mann Filter
+            st.link_button(
+                "🟢 Mann Filter Catalog",
+                f"https://www.mann-filter.com/en-official/catalog/search.html?query={encoded_query}",
+            )
 
-            with c2:
-                st.image(
-                    row["صورة القطعة"],
-                    caption=f"{row['اسم القطعة']} - {row['رقم الوكالة (OEM)']}",
-                    use_column_width=True,
-                )
-
-            st.divider()
-else:
-    st.warning("⚠️ لم يتم العثور على أية قطعة تطابق شروط البحث الحالية.")
+        st.success(
+            "اضغط على أي زر أعلاه وسيفتح لك صفحة البحث المباشرة برقم القطعة في الكتالوج المطلوب بدون الحاجة لإعادة الكتابة!"
+        )
+    else:
+        st.warning("⚠️ يرجى كتابة رقم القطعة أو اسمها في صندوق البحث أعلاه لتفعيل روابط الكتالوجات والمواقع.")
