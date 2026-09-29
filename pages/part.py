@@ -197,36 +197,96 @@ if search_btn:
 import streamlit as st
 import urllib.parse
 
-st.set_page_config(page_title="مستكشف قطع غيار الشاحنات", layout="wide")
+# 1. إعدادات الصفحة
+st.set_page_config(
+    page_title="نظام قطع غيار الشاحنات | Mercedes & Volvo EPC",
+    page_icon="🚛",
+    layout="wide"
+)
 
-st.title("🚛 نظام البحث عن قطع غيار الشاحنات (EPC)")
+# 2. الواجهة الرئيسية
+st.title("🚛 نظام استعلام قطع غيار الشاحنات الثقيلة (EPC Pro)")
+st.caption("مخصص لشاحنات مرسيدس (أكتروس/أتيجو) وشاحنات فولفو (FH / FM / VNL)")
 st.markdown("---")
 
-# إدخال رقم الشاصيه
-vin_input = st.text_input("أدخل رقم الشاصيه (VIN):", value="WDB9320731K875874").strip().upper()
+# 3. مدخلات البيانات
+col_brand, col_vin, col_group = st.columns([1, 2, 1.5])
 
-if st.button("بحث في الكتالوجات المتاحة"):
-    if len(vin_input) < 14:
-        st.error("يرجى إدخال رقم شاصيه صحيح.")
+with col_brand:
+    brand = st.selectbox(
+        "ماركة الشاحنة:",
+        ["مرسيدس (Mercedes-Benz Actros)", "فولفو (Volvo Trucks)"]
+    )
+
+with col_vin:
+    # القيمة الافتراضية بناءً على اختيار الشركة
+    default_vin = "WDB9320731K875874" if "مرسيدس" in brand else "YV2A4CFB0EB000000"
+    vin_input = st.text_input("رقم الشاصيه (VIN / Chassis No):", value=default_vin).strip().upper()
+
+with col_group:
+    group_options = [
+        "الكل / الكتالوج العام (General)",
+        "46 - نظام التوجيه/الدركسون (Steering System)",
+        "01 - المحرك والمكونات (Engine)",
+        "26 - الناقل/القير (Transmission)",
+        "33/35 - الأكسات والمحاور (Axles)",
+        "42 - الفرامل والأنظمة الهوائية (Brakes/Pneumatics)",
+        "54 - الكهرباء والحساسات (Electrical)"
+    ]
+    selected_group = st.selectbox("المجموعة الرئيسية (Main Group):", group_options)
+
+st.write("##")
+search_btn = st.button("🚀 استعلام وجلب المخططات والقطع", use_container_width=True)
+
+# 4. منطق معالجة وتوليد الروابط القوية
+if search_btn:
+    if len(vin_input) < 10:
+        st.error("⚠️ يرجى إدخال رقم شاصيه صحيح (VIN لا يقل عن 10 أرقام).")
     else:
-        st.success(f"جاري التوجيه لرقم الشاصيه: **{vin_input}**")
+        st.success(f"✅ تم للتعرف على الشاحنة: **{brand}** | رقم الشاصيه: **{vin_input}**")
         
         encoded_vin = urllib.parse.quote(vin_input)
         
-        # روابط متخصصة لشاحنات مرسيدس والكتالوجات المفتوحة
-        url_ilcats = f"https://www.ilcats.ru/mercedes/?vin={encoded_vin}&action=single"
-        url_7zap_trucks = f"https://7zap.com/en/catalog/trucks/Mercedes/{encoded_vin}"
-        url_carprog = f"https://carprog24.com/search?vin={encoded_vin}"
+        st.markdown("### 🔍 المصادر المتاحة لكتالوجات المخططات (Open EPC):")
         
-        st.markdown("### 🔗 اختر الكتالوج المخصص لشاحنات مرسيدس:")
+        c1, c2, c3 = st.columns(3)
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.link_button("🌐 كتالوج ILCats (شاحنات)", url_ilcats, use_container_width=True)
-        with col2:
-            st.link_button("🛠️ كتالوج 7Zap Trucks", url_7zap_trucks, use_container_width=True)
-        with col3:
-            st.link_button("🔍 كتالوج CarProg24", url_carprog, use_container_width=True)
+        if "مرسيدس" in brand:
+            # روابط متخصصة لأكتروس ومرسيدس
+            url_ilcats = f"https://www.ilcats.ru/mercedes/?vin={encoded_vin}&action=single"
+            url_7zap = f"https://7zap.com/en/catalog/trucks/Mercedes/{encoded_vin}"
+            url_carprog = f"https://carprog24.com/catalog/mercedes/trucks?vin={encoded_vin}"
+            
+            with c1:
+                st.link_button("🌐 ILCats Mercedes Trucks", url_ilcats, use_container_width=True)
+            with c2:
+                st.link_button("🛠️ 7Zap Actros Catalog", url_7zap, use_container_width=True)
+            with c3:
+                st.link_button("🔍 CarProg24 Mercedes", url_carprog, use_container_width=True)
+                
+        else: # فولفو
+            # روابط متخصصة لشاحنات فولفو (FH, FM, VNL)
+            url_7zap_volvo = f"https://7zap.com/en/catalog/trucks/Volvo/{encoded_vin}"
+            url_ilcats_volvo = f"https://www.ilcats.ru/volvo/?vin={encoded_vin}&action=single"
+            url_epicvin = f"https://epicvin.com/vin-decoder/volvo-truck"
+            
+            with c1:
+                st.link_button("🌐 7Zap Volvo Trucks", url_7zap_volvo, use_container_width=True)
+            with c2:
+                st.link_button("🛠️ ILCats Volvo Catalog", url_ilcats_volvo, use_container_width=True)
+            with c3:
+                st.link_button("🔍 Volvo VIN Decoder", url_epicvin, use_container_width=True)
 
         st.markdown("---")
-        st.info("💡 **ملاحظة:** تفرض معظم الكتالوجات حماية تمنع التصفح داخل التطبيق (IFrame)، لذا يُفضل فتح الرابط المباشر أعلاه للوصول لمخططات قطع الغيار.")
+        
+        # 5. عرض إرشادات المجموعة المختارة للتعامل السريع
+        st.info(f"📌 **نصيحة البحث للمجموعة المختارة ({selected_group}):**")
+        if "46" in selected_group:
+            st.write("• ابحث داخل الكتالوج عن **Group 46 (Steering)** لمضخة الهيدروليك (Steering Pump)، خضاب/ذراع الدركسون (Pitman Arm)، وعلبة الدركسون (Steering Gear).")
+        elif "01" in selected_group:
+            st.write("• ابحث داخل الكتالوج عن **Group 01/03/05 (Engine)** للفلترة، التوربو، والبخاخات.")
+        elif "26" in selected_group:
+            st.write("• ابحث داخل الكتالوج عن **Group 26 (Transmission)** للديسك والبلية والدسكات والسينسورات.")
+        else:
+            st.write("• تصفح المخطط التفاعلي داخل الكتالوج المفتوح للحصول على رقم القطعة الأصلي (OEM Part Number).")
+
