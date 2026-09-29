@@ -193,3 +193,40 @@ if search_btn:
         # عرض الكتالوج التفاعلي داخل تطبيق Streamlit مباشرة
         st.subheader("📺 العرض المباشر للكتالوج:")
         st.components.v1.iframe(url_7zap, height=750, scrolling=True)
+
+import streamlit as st
+import urllib.parse
+
+st.set_page_config(page_title="مستكشف قطع غيار الشاحنات", layout="wide")
+
+st.title("🚛 نظام البحث عن قطع غيار الشاحنات (EPC)")
+st.markdown("---")
+
+# إدخال رقم الشاصيه
+vin_input = st.text_input("أدخل رقم الشاصيه (VIN):", value="WDB9320731K875874").strip().upper()
+
+if st.button("بحث في الكتالوجات المتاحة"):
+    if len(vin_input) < 14:
+        st.error("يرجى إدخال رقم شاصيه صحيح.")
+    else:
+        st.success(f"جاري التوجيه لرقم الشاصيه: **{vin_input}**")
+        
+        encoded_vin = urllib.parse.quote(vin_input)
+        
+        # روابط متخصصة لشاحنات مرسيدس والكتالوجات المفتوحة
+        url_ilcats = f"https://www.ilcats.ru/mercedes/?vin={encoded_vin}&action=single"
+        url_7zap_trucks = f"https://7zap.com/en/catalog/trucks/Mercedes/{encoded_vin}"
+        url_carprog = f"https://carprog24.com/search?vin={encoded_vin}"
+        
+        st.markdown("### 🔗 اختر الكتالوج المخصص لشاحنات مرسيدس:")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.link_button("🌐 كتالوج ILCats (شاحنات)", url_ilcats, use_container_width=True)
+        with col2:
+            st.link_button("🛠️ كتالوج 7Zap Trucks", url_7zap_trucks, use_container_width=True)
+        with col3:
+            st.link_button("🔍 كتالوج CarProg24", url_carprog, use_container_width=True)
+
+        st.markdown("---")
+        st.info("💡 **ملاحظة:** تفرض معظم الكتالوجات حماية تمنع التصفح داخل التطبيق (IFrame)، لذا يُفضل فتح الرابط المباشر أعلاه للوصول لمخططات قطع الغيار.")
