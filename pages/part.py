@@ -136,3 +136,60 @@ with tab2:
         )
     else:
         st.warning("⚠️ يرجى كتابة رقم القطعة أو اسمها في صندوق البحث أعلاه لتفعيل روابط الكتالوجات والمواقع.")
+
+import streamlit as st
+import urllib.parse
+
+st.set_page_config(page_title="نظام الاستعلام عن قطع الغيار", layout="wide")
+
+st.title("🚛 نظام استعلام قطع غيار الشاحنات - مرسيدس أكتروس")
+st.markdown("---")
+
+# إدخال رقم الشاصيه والمجموعة
+col1, col2, col3 = st.columns([2, 1, 1])
+
+with col1:
+    vin_input = st.text_input("أدخل رقم الشاصيه (VIN):", value="WDB9320731K875874").strip().upper()
+
+with col2:
+    group_option = st.selectbox(
+        "اختر المجموعة الرئيسية:",
+        [
+            "46 - نظام التوجيه (Steering)",
+            "01 - المحرك (Engine)",
+            "26 - القير / الناقل (Transmission)",
+            "33 - المحور الأمامي (Front Axle)",
+            "35 - المحور الخلفي (Rear Axle)",
+            " الكل (General)"
+        ]
+    )
+
+with col3:
+    st.write("##")
+    search_btn = st.button("بحث في الكتالوج", use_container_width=True)
+
+if search_btn:
+    if len(vin_input) < 14:
+        st.error("يرجى إدخال رقم شاصيه صحيح (VIN).")
+    else:
+        st.success(f"تم اعتماد رقم الشاصيه: **{vin_input}**")
+        
+        # إنشاء روابط البحث المباشرة لمصادر الكتالوجات المفتوحة
+        encoded_vin = urllib.parse.quote(vin_input)
+        
+        url_7zap = f"https://7zap.com/en/search/{encoded_vin}"
+        url_mbparts = f"https://mbtools.com/vin?vin={encoded_vin}"
+        
+        st.markdown("### 🔗 المصادر المتاحة للكتالوج المفتوح:")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.link_button("🌐 فتح الكتالوج عبر 7Zap", url_7zap, use_container_width=True)
+        with c2:
+            st.link_button("🛠️ فك تشفير البيانات عبر MBTools", url_mbparts, use_container_width=True)
+            
+        st.markdown("---")
+        
+        # عرض الكتالوج التفاعلي داخل تطبيق Streamlit مباشرة
+        st.subheader("📺 العرض المباشر للكتالوج:")
+        st.components.v1.iframe(url_7zap, height=750, scrolling=True)
