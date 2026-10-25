@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 import xml.etree.ElementTree as ET
 
-# --- إعدادات الصفحة (يجب أن تكون أول أمر Streamlit) ---
+# --- إعدادات الصفحة ---
 st.set_page_config(page_title="نظام قيود أونكس برو - SMS", layout="wide")
 
 # --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال ---
@@ -41,15 +41,20 @@ def add_person(name, account_no, analytical_acc=""):
     except Exception:
         return False
 
-# بحث ذكي ومرن (يدعم المطابقة الجزئية للأسماء)
+# بحث ذكي ومرن (يدعم المطابقة الجزئية والتامة للأسماء)
 def get_person_info(name):
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        c.execute("SELECT account_number, analytical_account FROM persons WHERE person_name = ?", (name.strip(),))
+        # تنظيف اسم الشخص المقارن من أي مسافات زائدة أو أحرف خاصة
+        clean_name = name.strip()
+        
+        # 1. مطابقة تامة
+        c.execute("SELECT account_number, analytical_account FROM persons WHERE person_name = ?", (clean_name,))
         row = c.fetchone()
         
+        # 2. مطابقة جزئية (إذا كان اسم العميل جزءاً من النص أو العكس)
         if not row:
-            c.execute("SELECT account_number, analytical_account FROM persons WHERE ? LIKE '%' || person_name || '%'", (name.strip(),))
+            c.execute("SELECT account_number, analytical_account FROM persons WHERE ? LIKE '%' || person_name || '%' OR person_name LIKE '%' || ? || '%'", (clean_name, clean_name))
             row = c.fetchone()
             
         if row:
@@ -147,6 +152,7 @@ def extract_ref_number(raw_text):
     return None
 
 def split_bulk_messages(text):
+    # نمط مرن جداً لتقسيم الرسائل حتى لو كانت الكلمات ملتصقة بالأرقام
     pattern = r'(?=(?:خصم|إيداع|ايداع|صرف|تحويل)\s*[\d\.,]+)'
     parts = re.split(pattern, text)
     messages = [p.strip() for p in parts if p.strip()]
@@ -155,11 +161,13 @@ def split_bulk_messages(text):
 def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
     entry_rows = []
     
-    amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([^\d\s]+)', raw_text)
+    # دعم المبالغ سواء كانت ملتصقة أو بينها مسافة
+    amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([^\d\s]*)', raw_text) or \
+                   re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)([\d\.,]+)\s*([^\d\s]*)', raw_text)
     
     if amount_match:
         amount = float(amount_match.group(1).replace(',', ''))
-        currency_raw = amount_match.group(2).replace(" ", "")
+        currency_raw = amount_match.group(2).replace(" ", "") if amount_match.group(2) else ""
         
         if "رؤ" in currency_raw or "ري" in currency_raw:
             currency_code = "1"
@@ -177,7 +185,11 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
         fee_match = re.search(r'ع:\s*([\d\.,]+)', raw_text)
         fee = float(fee_match.group(1).replace(',', '')) if fee_match else 0.0
 
-        person_ref_match = re.search(r'/\s*(.*?)\s*/\s*(\d+)', raw_text) or re.search(r'من:\s*(.*?)/(\d+)', raw_text)
+        # استخراج اسم الشخص ورقم المرجع بمرونة عالية (سواء بخط مائل / أو بعد كلمة من:)
+        person_ref_match = re.search(r'/\s*(.*?)\s*/\s*(\d+)', raw_text) or \
+                           re.search(r'من:\s*(.*?)/(\d+)', raw_text) or \
+                           re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text) or \
+                           re.search(r'من:\s*(.*?)\s+(\d{5,})', raw_text)
         
         if "خصم" in raw_text or "صرف" in raw_text or "تحويل" in raw_text:
             if person_ref_match:
