@@ -1,4 +1,4 @@
-sqlite3
+import sqlite3
 import re
 import io
 import pandas as pd
@@ -104,7 +104,6 @@ excel_persons_file = st.sidebar.file_uploader("رفع ملف إكسل للعمل
 if excel_persons_file is not None:
     try:
         df_import = pd.read_excel(excel_persons_file)
-        # التأكد من أسماء الأعمدة المتوقعة
         if all(col in df_import.columns for col in ['اسم الشخص', 'رقم الحساب', 'الحساب التحليلي']):
             count = 0
             for _, row in df_import.iterrows():
@@ -119,7 +118,7 @@ if excel_persons_file is not None:
         else:
             st.sidebar.error("يجب أن يحتوي ملف الإكسل على الأعمدة التالية بالضبط: اسم الشخص, رقم الحساب, الحساب التحليلي")
     except Exception as e:
-        st.sidebar.error(fُ"خطأ في قراءة ملف الإكسل: {e}")
+        st.sidebar.error(f"خطأ في قراءة ملف الإكسل: {e}")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("إضافة عميل يدويًا")
@@ -236,164 +235,4 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
 
         elif "إيداع" in raw_text or "ايداع" in raw_text:
             if person_ref_match:
-                person_name = person_ref_match.group(1).strip()
-                reference_no = person_ref_match.group(2).strip()
-            else:
-                person_name = "عميل غير محدد"
-                reference_no = "0000"
-            
-            header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency_label})"
-            
-            # البحث الذكي في قاعدة البيانات
-            p_info = get_person_info(person_name)
-            credit_account = p_info["account"] if p_info else "1211013"
-            analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
-            
-            # سطر مدين للصندوق/العالمية
-            entry_rows.append({
-                "رقم الحساب": main_cash_acc,
-                "الحساب التحليلي": main_cash_ana,
-                "البيان": header_description,
-                "المدين": amount,
-                "الدائن": 0.0,
-                "العملة": currency_code,
-                "رقم المرجع": reference_no
-            })
-            
-            # سطر دائن للشخص
-            entry_rows.append({
-                "رقم الحساب": credit_account,
-                "الحساب التحليلي": analytical_acc,
-                "البيان": header_description,
-                "المدين": 0.0,
-                "الدائن": amount,
-                "العملة": currency_code,
-                "رقم المرجع": reference_no
-            })
-            
-    return entry_rows
-
-# --- 6. واجهة الأداء والاستخراج ---
-tab1, tab2 = st.tabs(["📁 رفع ملف SMS Backup (.xml / .txt)", "📝 لصق رسائل متعددة"])
-
-if "all_entries" not in st.session_state:
-    st.session_state.all_entries = []
-
-with tab1:
-    st.subheader("رفع ملف النسخة الاحتياطية للرسائل")
-    uploaded_file = st.file_uploader("اختر ملف XML أو TXT المنسوخ:", type=["xml", "txt"])
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        start_ref = st.text_input("من رقم حوالة:", value="")
-    with col_f2:
-        end_ref = st.text_input("إلى رقم حوالة:", value="")
-        
-    if uploaded_file is not None:
-        messages_text = []
-        filename = uploaded_file.name.lower()
-        
-        if filename.endswith(".xml"):
-            try:
-                tree = ET.parse(uploaded_file)
-                root = tree.getroot()
-                for sms in root.findall('sms'):
-                    body = sms.get('body')
-                    if body:
-                        messages_text.append(body)
-            except Exception as e:
-                st.error(f"حدث خطأ أثناء قراءة ملف XML: {e}")
-        else:
-            content = uploaded_file.read().decode("utf-8")
-            messages_text = split_bulk_messages(content)
-            
-        st.info(f"إجمالي الرسائل المقروءة: {len(messages_text)} رسالة.")
-        
-        if st.button("توليد ومعالجة القيود من الملف", type="primary"):
-            parsed_rows = []
-            s_ref = int(start_ref.strip()) if start_ref.strip().isdigit() else None
-            e_ref = int(end_ref.strip()) if end_ref.strip().isdigit() else None
-            
-            for msg in messages_text:
-                if s_ref is not None or e_ref is not None:
-                    msg_ref = extract_ref_number(msg)
-                    if msg_ref is not None:
-                        if s_ref is not None and msg_ref < s_ref:
-                            continue
-                        if e_ref is not None and msg_ref > e_ref:
-                            continue
-                    else:
-                        continue
-                        
-                rows = parse_single_message(msg, cash_acc_num, cash_acc_ana)
-                parsed_rows.extend(rows)
-                
-            st.session_state.all_entries = parsed_rows
-            st.success(f"تمت المعالجة بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
-
-with tab2:
-    st.subheader("إدخال/لصق مجموعة رسائل دفعة واحدة")
-    bulk_msg = st.text_area("انسخ والصق نصوص الرسائل هنا:", height=200)
-    
-    if st.button("تحويل جميع الرسائل الملصقة إلى قيود", type="primary"):
-        if bulk_msg.strip():
-            split_messages = split_bulk_messages(bulk_msg)
-            parsed_rows = []
-            for msg in split_messages:
-                rows = parse_single_message(msg, cash_acc_num, cash_acc_ana)
-                if rows:
-                    parsed_rows.extend(rows)
-            if parsed_rows:
-                st.session_state.all_entries.extend(parsed_rows)
-                st.success("تم تحويل الرسائل بنجاح!")
-
-# --- 7. مراجعة وتصدير القيود لشاشة استيراد أونكس برو ---
-if st.session_state.all_entries:
-    st.markdown("---")
-    col_t1, col_t2 = st.columns([3, 1])
-    with col_t1:
-        st.subheader("🔍 شاشة مراجعة وتصدير القيود")
-    with col_t2:
-        if st.button("🗑️ مسح الجدول وتصفيته"):
-            st.session_state.all_entries = []
-            st.rerun()
-
-    df_all = pd.DataFrame(st.session_state.all_entries)
-    
-    total_debit = df_all['المدين'].sum()
-    total_credit = df_all['الدائن'].sum()
-    st.metric(label="إجمالي المدين", value=f"{total_debit:,.2f}")
-    st.metric(label="إجمالي الدائن", value=f"{total_credit:,.2f}")
-    
-    st.dataframe(df_all[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'العملة', 'رقم المرجع']], use_container_width=True)
-    
-    onyx_rows = []
-    for idx, row in df_all.iterrows():
-        is_local = (row['العملة'] == "1")
-        onyx_rows.append({
-            "رقم الحساب": row['رقم الحساب'],
-            "الحساب التحليلي": row['الحساب التحليلي'],
-            "البيان": row['البيان'],
-            "مدين محلي": row['المدين'] if is_local else 0.0,
-            "مدين أجنبي": 0.0 if is_local else row['المدين'],
-            "دائن محلي": row['الدائن'] if is_local else 0.0,
-            "دائن أجنبي": 0.0 if is_local else row['الدائن'],
-            "العملة": row['العملة'],
-            "مركز التكلفة": "",
-            "المشروع": "",
-            "النشاط": ""
-        })
-    
-    df_onyx_direct = pd.DataFrame(onyx_rows)
-    
-    buffer_onyx = io.BytesIO()
-    with pd.ExcelWriter(buffer_onyx, engine='openpyxl') as writer:
-        df_onyx_direct.to_excel(writer, index=False, sheet_name='Onyx_Import')
-    buffer_onyx.seek(0)
-    
-    st.download_button(
-        label="📥 تنزيل ملف الإكسل المباشر (المطابق لشاشة استيراد أونكس برو)",
-        data=buffer_onyx,
-        file_name=f"OnyxPro_Direct_Import_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+                person_name = person_ref
