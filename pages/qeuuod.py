@@ -1,4 +1,4 @@
-sqlite3
+import sqlite3
 import re
 import io
 import pandas as pd
@@ -33,9 +33,7 @@ def normalize_arabic(text):
     if not text:
         return ""
     text = str(text).strip()
-    # توحيد أشكال الهمزات والألف
     text = re.sub(r'[أإآا]', 'ا', text)
-    # توحيد الهاء والتاء المربوطة إن أمكن، أو إزالة المسافات الزائدة
     text = re.sub(r'\s+', ' ', text)
     return text
 
@@ -62,7 +60,6 @@ def get_person_info(name):
     
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # جلب جميع الأسماء من القاعدة للمقارنة الذكية متجاوزين الهمزات
         c.execute("SELECT person_name, account_number, analytical_account FROM persons")
         rows = c.fetchall()
         
@@ -70,7 +67,6 @@ def get_person_info(name):
             db_name = row[0]
             db_normalized = normalize_arabic(db_name)
             
-            # مطابقة تامة بعد تنظيف الهمزات أو مطابقة جزئية (الاسم موجود داخل النص)
             if db_normalized == target_normalized or db_normalized in target_normalized or target_normalized in db_normalized:
                 return {
                     "account": str(row[1]), 
