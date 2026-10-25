@@ -364,7 +364,7 @@ if st.session_state.all_entries:
             "رقم الحساب": row['رقم الحساب'],
             "الحساب التحليلي": row['الحساب التحليلي'],
             "البيان": row['البيان'],
-            "مدين محلي": row['الدين'] if is_local else 0.0, # تم إصلاح الاسم برمجياً
+            "مدين محلي": row['المدين'] if is_local else 0.0,
             "مدين أجنبي": 0.0 if is_local else row['المدين'],
             "دائن محلي": row['الدائن'] if is_local else 0.0,
             "دائن أجنبي": 0.0 if is_local else row['الدائن'],
