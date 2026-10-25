@@ -1,75 +1,73 @@
 import sqlite3
 import re
+import io
 import pandas as pd
 import streamlit as st
 import xml.etree.ElementTree as ET
-import io
 
-# --- 1. تهيئة وترقية قاعدة البيانات تلقائياً ---
+# --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال ---
+DB_NAME = "accounts_db.db"
+
 def init_db():
-    conn = sqlite3.connect("accounts_db.db")
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS persons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            person_name TEXT UNIQUE,
-            account_number TEXT,
-            analytical_account TEXT
-        )
-    ''')
-    try:
-        c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
-    except sqlite3.OperationalError:
-        pass
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS persons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                person_name TEXT UNIQUE,
+                account_number TEXT,
+                analytical_account TEXT
+            )
+        ''')
+        try:
+            c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
 
 def add_person(name, account_no, analytical_acc=""):
-    conn = sqlite3.connect("accounts_db.db")
-    c = conn.cursor()
     try:
-        c.execute(
-            "INSERT INTO persons (person_name, account_number, analytical_account) VALUES (?, ?, ?)",
-            (name, account_no, analytical_acc)
-        )
-        conn.commit()
-        return True
+        with sqlite3.connect(DB_NAME) as conn:
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO persons (person_name, account_number, analytical_account) VALUES (?, ?, ?)",
+                (name.strip(), account_no.strip(), analytical_acc.strip())
+            )
+            conn.commit()
+            return True
     except sqlite3.IntegrityError:
         return False
-    finally:
-        conn.close()
 
 def get_person_info(name):
-    conn = sqlite3.connect("accounts_db.db")
-    c = conn.cursor()
-    c.execute("SELECT account_number, analytical_account FROM persons WHERE person_name = ?", (name,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {"account": str(row[0]), "analytical": str(row[1]) if (len(row) > 1 and row[1]) else ""}
+    with sqlite3.connect(DB_NAME) as conn:
+        c = conn.cursor()
+        c.execute("SELECT account_number, analytical_account FROM persons WHERE person_name = ?", (name.strip(),))
+        row = c.fetchone()
+        if row:
+            return {"account": str(row[0]), "analytical": str(row[1]) if row[1] else ""}
     return None
 
 def get_all_persons():
-    conn = sqlite3.connect("accounts_db.db")
-    try:
-        df = pd.read_sql_query(
-            "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
-            conn
-        )
-    except Exception:
-        df = pd.read_sql_query(
-            "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب' FROM persons",
-            conn
-        )
-    conn.close()
+    with sqlite3.connect(DB_NAME) as conn:
+        try:
+            df = pd.read_sql_query(
+                "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
+                conn
+            )
+        except Exception:
+            df = pd.read_sql_query(
+                "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب' FROM persons",
+                conn
+            )
     return df
 
 init_db()
 
+# --- إعدادات الصفحة ---
 st.set_page_config(page_title="نظام قيود أونكس برو - SMS", layout="wide")
-st.title("نظام استخراج قيود أونكس برو من رسائل الحوالات")
+st.title("📊 نظام استخراج قيود أونكس برو من رسائل الحوالات (SMS)")
 
-# --- 2. إدارة دليل الأشخاص وتحديد حساب النقدية/الصندوق المقابل ---
+# --- 2. إدارة دليل الأشخاص والحساب المقابل ---
 st.sidebar.header("⚙️ إعدادات الحسابات")
 
 st.sidebar.subheader("حساب النقدية / الصندوق المقابل")
@@ -100,52 +98,74 @@ with st.sidebar.form("add_person_form"):
     new_analytical = st.text_input("الحساب التحليلي (مثال: 701)")
     submit_btn = st.form_submit_button("حفظ الحساب")
     
-    if submit_btn and new_name and new_account:
-        if add_person(new_name.strip(), new_account.strip(), new_analytical.strip()):
-            st.success(f"تم حفظ {new_name} بنجاح!")
-            st.rerun()
+    if submit_btn:
+        if new_name and new_account:
+            if add_person(new_name, new_account, new_analytical):
+                st.success(f"تم حفظ {new_name} بنجاح!")
+                st.rerun()
+            else:
+                st.warning("الاسم مكرر في قاعدة البيانات.")
         else:
-            st.warning("الاسم مكرر في قاعدة البيانات.")
+            st.error("يرجى ملء اسم الشخص ورقم الحساب الرئيسي.")
 
 st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 
 # --- 3. استخراج رقم الحوالة/المرجع للفلترة ---
 def extract_ref_number(raw_text):
-    ref_match = re.search(r'/\s*(\d+)', raw_text) or re.search(r'حوالة\s*(\d+)', raw_text)
+    ref_match = re.search(r'/\s*(\d+)', raw_text) or re.search(r'حوالة\s*(\d+)', raw_text) or re.search(r'مرجع\s*(\d+)', raw_text)
     if ref_match:
         return int(ref_match.group(1))
     return None
 
-# --- 4. دالة الفصل الذكي للرسائل المتصلة الملصقة دفعة واحدة ---
+# --- 4. دالة الفصل الذكي الشاملة لعدم فقدان أي رسالة ---
 def split_bulk_messages(text):
-    pattern = r'(?=(?:خصم|إيداع|ايداع)\s*[\d\.,]+)'
+    # نمط مرن لتقسيم الرسائل بناءً على الكلمات المفتاحية الشائعة للعمليات المالية
+    pattern = r'(?=(?:خصم|إيداع|ايداع|صرف|تحويل)\s*[\d\.,]+)'
     parts = re.split(pattern, text)
     messages = [p.strip() for p in parts if p.strip()]
     return messages
 
-# --- 5. محرك تحليل النص واستخراج القيود ---
+# --- 5. محرك تحليل النص المحدث (بدون رصيد + دعم عملة د.ز) ---
 def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
     entry_rows = []
     
-    balance_match = re.search(r'رصيدك:\s*([\d\.,]+)', raw_text) or re.search(r'الرصيد:\s*([\d\.,]+)', raw_text)
-    balance_str = f" | الرصيد: {balance_match.group(1)}" if balance_match else ""
+    # تحديد العملة والمبلغ
+    # يدعم: ري (ريال يمني/محلي)، رس (ريال سعودي)، أو $ / دولار / د.ز
+    amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([^\d\s]+)', raw_text)
     
-    if "خصم" in raw_text:
-        amount_match = re.search(r'خصم\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text)
-        fee_match = re.search(r'ع:\s*([\d\.,]+)', raw_text)
-        person_ref_match = re.search(r'/\s*(.*?)\s*/\s*(\d+)', raw_text)
+    if amount_match:
+        amount = float(amount_match.group(1).replace(',', ''))
+        currency_raw = amount_match.group(2).replace(" ", "")
         
-        if amount_match and person_ref_match:
-            amount = float(amount_match.group(1).replace(',', ''))
-            currency_raw = amount_match.group(2).replace(" ", "")
-            currency_code = "1" if "ري" in currency_raw else "2" # 1 محلي، 2 أجنبي
-            currency_label = "YR" if "ري" in currency_raw else "SR"
-            
-            fee = float(fee_match.group(1).replace(',', '')) if fee_match else 0.0
-            person_name = person_ref_match.group(1).strip()
-            reference_no = person_ref_match.group(2).strip()
-            
-            header_description = f"خصم تحويل للمستلم {person_name} مرجع {reference_no} ({currency_label}){balance_str}"
+        # تحديد كود العملة وتسميتها
+        if "رؤ" in currency_raw or "ري" in currency_raw:
+            currency_code = "1"
+            currency_label = "YR"
+        elif "رس" in currency_raw or "سعودي" in currency_raw:
+            currency_code = "2"
+            currency_label = "SR"
+        elif "$" in currency_raw or "دولار" in currency_raw or "د.ز" in currency_raw:
+            currency_code = "3"  # كود العملة الأجنبية الثالثة (الدولار)
+            currency_label = "د.ز"
+        else:
+            currency_code = "1"
+            currency_label = "YR"
+
+        fee_match = re.search(r'ع:\s*([\d\.,]+)', raw_text)
+        fee = float(fee_match.group(1).replace(',', '')) if fee_match else 0.0
+
+        # استخراج اسم الشخص ورقم المرجع بمرونة أعلى لمنع الفقدان
+        person_ref_match = re.search(r'/\s*(.*?)\s*/\s*(\d+)', raw_text) or re.search(r'من:\s*(.*?)/(\d+)', raw_text)
+        
+        if "خصم" in raw_text or "صرف" in raw_text or "تحويل" in raw_text:
+            if person_ref_match:
+                person_name = person_ref_match.group(1).strip()
+                reference_no = person_ref_match.group(2).strip()
+            else:
+                person_name = "عميل غير محدد"
+                reference_no = "0000"
+
+            header_description = f"خصم تحويل للمستلم {person_name} مرجع {reference_no} ({currency_label})"
             
             p_info = get_person_info(person_name)
             debit_account = p_info["account"] if p_info else "1211013"
@@ -162,7 +182,7 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
                 "رقم المرجع": reference_no
             })
             
-            # سطر عمولة
+            # سطر عمولة (إن وجد)
             if fee > 0:
                 entry_rows.append({
                     "رقم الحساب": "321003",
@@ -186,20 +206,15 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
                 "رقم المرجع": reference_no
             })
 
-    elif "إيداع" in raw_text or "ايداع" in raw_text:
-        amount_match = re.search(r'إيداع\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text) or re.search(r'ايداع\s*([\d\.,]+)\s*(ر\s*ي|ر\s*س)', raw_text)
-        transfer_match = re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text)
-        
-        if amount_match and transfer_match:
-            amount = float(amount_match.group(1).replace(',', ''))
-            currency_raw = amount_match.group(2).replace(" ", "")
-            currency_code = "1" if "ري" in currency_raw else "2"
-            currency_label = "YR" if "ري" in currency_raw else "SR"
+        elif "إيداع" in raw_text or "ايداع" in raw_text:
+            if person_ref_match:
+                person_name = person_ref_match.group(1).strip()
+                reference_no = person_ref_match.group(2).strip()
+            else:
+                person_name = "عميل غير محدد"
+                reference_no = "0000"
             
-            person_name = transfer_match.group(1).strip()
-            reference_no = transfer_match.group(2).strip()
-            
-            header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency_label}){balance_str}"
+            header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency_label})"
             
             p_info = get_person_info(person_name)
             credit_account = p_info["account"] if p_info else "1211013"
@@ -229,8 +244,8 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
             
     return entry_rows
 
-# --- 6. واجهة الأداء ---
-tab1, tab2 = st.tabs(["رفع ملف SMS Backup (.xml / .txt)", "لصق رسائل متعددة دفعة واحدة"])
+# --- 6. واجهة الأداء والاستخراج ---
+tab1, tab2 = st.tabs(["📁 رفع ملف SMS Backup (.xml / .txt)", "📝 لصق رسائل متعددة"])
 
 if "all_entries" not in st.session_state:
     st.session_state.all_entries = []
@@ -258,89 +273,11 @@ with tab1:
                     if body:
                         messages_text.append(body)
             except Exception as e:
-                st.error("حدث خطأ أثناء قراءة ملف XML.")
+                st.error(f"حدث خطأ أثناء قراءة ملف XML: {e}")
         else:
             content = uploaded_file.read().decode("utf-8")
             messages_text = split_bulk_messages(content)
             
         st.info(f"إجمالي الرسائل المقروءة: {len(messages_text)} رسالة.")
         
-        if st.button("توليد ومعالجة القيود من الملف"):
-            parsed_rows = []
-            s_ref = int(start_ref.strip()) if start_ref.strip().isdigit() else None
-            e_ref = int(end_ref.strip()) if end_ref.strip().isdigit() else None
-            
-            for msg in messages_text:
-                if s_ref is not None or e_ref is not None:
-                    msg_ref = extract_ref_number(msg)
-                    if msg_ref is not None:
-                        if s_ref is not None and msg_ref < s_ref:
-                            continue
-                        if e_ref is not None and msg_ref > e_ref:
-                            continue
-                    else:
-                        continue
-                        
-                rows = parse_single_message(msg, cash_acc_num, cash_acc_ana)
-                parsed_rows.extend(rows)
-                
-            st.session_state.all_entries = parsed_rows
-            st.success(f"تم معالجة الرسائل بنجاح! عدد الأسطر المستخرجة: {len(parsed_rows)}")
-
-with tab2:
-    st.subheader("إدخال/لصق مجموعة رسائل دفعة واحدة")
-    bulk_msg = st.text_area("انسخ والصق نصوص الرسائل هنا:", height=200)
-    
-    if st.button("تحويل جميع الرسائل الملصقة إلى قيود"):
-        if bulk_msg.strip():
-            split_messages = split_bulk_messages(bulk_msg)
-            parsed_rows = []
-            for msg in split_messages:
-                rows = parse_single_message(msg, cash_acc_num, cash_acc_ana)
-                if rows:
-                    parsed_rows.extend(rows)
-            if parsed_rows:
-                st.session_state.all_entries.extend(parsed_rows)
-                st.success("تم تحويل الرسائل بنجاح!")
-
-# --- 7. التصدير المباشر المتوافق مع شاشة أونكس برو ---
-if st.session_state.all_entries:
-    st.markdown("---")
-    st.subheader("🔍 شاشة مراجعة وتصدير القيود")
-    
-    df_all = pd.DataFrame(st.session_state.all_entries)
-    st.dataframe(df_all[['رقم الحساب', 'الحساب التحليلي', 'البيان', 'المدين', 'الدائن', 'رقم المرجع']], use_container_width=True)
-    
-    # بناء الجدول المخصص لشاشة استيراد القيود في أونكس برو بالترتيب المطلوب تماماً
-    # ترتيب أونكس: رقم الحساب - الحساب التحليلي - البيان - مدين محلي - مدين أجنبي - دائن محلي - دائن أجنبي - العملة - مركز التكلفة - المشروع - النشاط
-    onyx_rows = []
-    for idx, row in df_all.iterrows():
-        is_foreign = (row['العملة'] == "2")
-        onyx_rows.append({
-            "رقم الحساب": row['رقم الحساب'],
-            "الحساب التحليلي": row['الحساب التحليلي'],
-            "البيان": row['البيان'],
-            "مدين محلي": 0.0 if is_foreign else row['المدين'],
-            "مدين أجنبي": row['المدين'] if is_foreign else 0.0,
-            "دائن محلي": 0.0 if is_foreign else row['الدائن'],
-            "دائن أجنبي": row['الدائن'] if is_foreign else 0.0,
-            "العملة": row['العملة'],
-            "مركز التكلفة": "",
-            "المشروع": "",
-            "النشاط": ""
-        })
-    
-    df_onyx_direct = pd.DataFrame(onyx_rows)
-    
-    # تحضير ملف الإكسل للتنزيل
-    buffer_onyx = io.BytesIO()
-    with pd.ExcelWriter(buffer_onyx, engine='openpyxl') as writer:
-        df_onyx_direct.to_excel(writer, index=False, sheet_name='Onyx_Import')
-    buffer_onyx.seek(0)
-    
-    st.download_button(
-        label="📥 تنزيل ملف الإكسل المباشر (المطابق لشاشة استيراد أونكس برو لديك)",
-        data=buffer_onyx,
-        file_name=f"OnyxPro_Direct_Import_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        if st.button("تول
