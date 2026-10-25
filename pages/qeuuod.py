@@ -1,4 +1,4 @@
-import sqlite3
+sqlite3
 import re
 import io
 import pandas as pd
@@ -28,37 +28,54 @@ def init_db():
             pass
         conn.commit()
 
+# دالة لتنظيف وتوحيد الهمزات للمقارنة الدقيقة
+def normalize_arabic(text):
+    if not text:
+        return ""
+    text = str(text).strip()
+    # توحيد أشكال الهمزات والألف
+    text = re.sub(r'[أإآا]', 'ا', text)
+    # توحيد الهاء والتاء المربوطة إن أمكن، أو إزالة المسافات الزائدة
+    text = re.sub(r'\s+', ' ', text)
+    return text
+
 def add_person(name, account_no, analytical_acc=""):
     try:
         with sqlite3.connect(DB_NAME) as conn:
             c = conn.cursor()
+            cleaned_name = name.strip()
             c.execute(
                 "INSERT OR REPLACE INTO persons (person_name, account_number, analytical_account) VALUES (?, ?, ?)",
-                (name.strip(), account_no.strip(), analytical_acc.strip())
+                (cleaned_name, account_no.strip(), analytical_acc.strip())
             )
             conn.commit()
             return True
     except Exception:
         return False
 
-# بحث ذكي ومرن (يدعم المطابقة الجزئية والتامة للأسماء)
+# بحث ذكي يتجاهل الهمزات ويدعم المطابقة الجزئية
 def get_person_info(name):
+    if not name:
+        return None
+    
+    target_normalized = normalize_arabic(name)
+    
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # تنظيف اسم الشخص المقارن من أي مسافات زائدة أو أحرف خاصة
-        clean_name = name.strip()
+        # جلب جميع الأسماء من القاعدة للمقارنة الذكية متجاوزين الهمزات
+        c.execute("SELECT person_name, account_number, analytical_account FROM persons")
+        rows = c.fetchall()
         
-        # 1. مطابقة تامة
-        c.execute("SELECT account_number, analytical_account FROM persons WHERE person_name = ?", (clean_name,))
-        row = c.fetchone()
-        
-        # 2. مطابقة جزئية (إذا كان اسم العميل جزءاً من النص أو العكس)
-        if not row:
-            c.execute("SELECT account_number, analytical_account FROM persons WHERE ? LIKE '%' || person_name || '%' OR person_name LIKE '%' || ? || '%'", (clean_name, clean_name))
-            row = c.fetchone()
+        for row in rows:
+            db_name = row[0]
+            db_normalized = normalize_arabic(db_name)
             
-        if row:
-            return {"account": str(row[0]), "analytical": str(row[1]) if row[1] else ""}
+            # مطابقة تامة بعد تنظيف الهمزات أو مطابقة جزئية (الاسم موجود داخل النص)
+            if db_normalized == target_normalized or db_normalized in target_normalized or target_normalized in db_normalized:
+                return {
+                    "account": str(row[1]), 
+                    "analytical": str(row[2]) if row[2] else ""
+                }
     return None
 
 def get_all_persons():
@@ -152,7 +169,6 @@ def extract_ref_number(raw_text):
     return None
 
 def split_bulk_messages(text):
-    # نمط مرن جداً لتقسيم الرسائل حتى لو كانت الكلمات ملتصقة بالأرقام
     pattern = r'(?=(?:خصم|إيداع|ايداع|صرف|تحويل)\s*[\d\.,]+)'
     parts = re.split(pattern, text)
     messages = [p.strip() for p in parts if p.strip()]
@@ -161,7 +177,6 @@ def split_bulk_messages(text):
 def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
     entry_rows = []
     
-    # دعم المبالغ سواء كانت ملتصقة أو بينها مسافة
     amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([^\d\s]*)', raw_text) or \
                    re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)([\d\.,]+)\s*([^\d\s]*)', raw_text)
     
@@ -185,7 +200,6 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
         fee_match = re.search(r'ع:\s*([\d\.,]+)', raw_text)
         fee = float(fee_match.group(1).replace(',', '')) if fee_match else 0.0
 
-        # استخراج اسم الشخص ورقم المرجع بمرونة عالية (سواء بخط مائل / أو بعد كلمة من:)
         person_ref_match = re.search(r'/\s*(.*?)\s*/\s*(\d+)', raw_text) or \
                            re.search(r'من:\s*(.*?)/(\d+)', raw_text) or \
                            re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text) or \
