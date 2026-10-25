@@ -173,25 +173,27 @@ def split_bulk_messages(text):
 def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
     entry_rows = []
     
-    amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([^\d\s]*)', raw_text) or \
-                   re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)([\d\.,]+)\s*([^\d\s]*)', raw_text)
+    # التقاط المبلغ وما يليه من حروف العملة بدقة
+    amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([أ-يa-zA-Z\$]+)', raw_text) or \
+                   re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)([\d\.,]+)\s*([أ-يa-zA-Z\$]+)', raw_text)
     
     if amount_match:
         amount = float(amount_match.group(1).replace(',', ''))
-        currency_raw = amount_match.group(2).replace(" ", "") if amount_match.group(2) else ""
+        currency_raw = amount_match.group(2).replace(" ", "").strip()
         
-        if "رؤ" in currency_raw or "ري" in currency_raw:
-            currency_code = "1"
-            currency_label = "YR"
-        elif "رس" in currency_raw or "سعودي" in currency_raw:
-            currency_code = "2"
-            currency_label = "SR"
-        elif "$" in currency_raw or "دولار" in currency_raw or "د.ز" in currency_raw:
-            currency_code = "3"
-            currency_label = "د.ز"
+        # تمييز العملات بدقة بناءً على ملاحظتك
+        if "ري" in currency_raw:
+            currency_code = "1"  # ريال يمني
+            currency_label = "ريال يمني"
+        elif "رس" in currency_raw or "ر س" in raw_text or "سعودي" in currency_raw:
+            currency_code = "2"  # ريال سعودي
+            currency_label = "ريال سعودي"
+        elif "دز" in currency_raw or "د.ز" in raw_text or "دولار" in currency_raw or "$" in currency_raw:
+            currency_code = "3"  # دولار (د ز)
+            currency_label = "دولار أزرق (د.ز)"
         else:
             currency_code = "1"
-            currency_label = "YR"
+            currency_label = "ريال يمني"
 
         fee_match = re.search(r'ع:\s*([\d\.,]+)', raw_text)
         fee = float(fee_match.group(1).replace(',', '')) if fee_match else 0.0
@@ -382,6 +384,7 @@ if st.session_state.all_entries:
     onyx_rows = []
     for idx, row in df_all.iterrows():
         is_local = (row['العملة'] == "1")
+        # في أونكس، إذا كانت العملة غير محلية (سعودي أو دولار)، توضع في الحقول الأجنبية حسب الكود
         onyx_rows.append({
             "رقم الحساب": row['رقم الحساب'],
             "الحساب التحليلي": row['الحساب التحليلي'],
