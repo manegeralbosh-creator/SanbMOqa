@@ -8,13 +8,12 @@ import xml.etree.ElementTree as ET
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="نظام قيود أونكس برو - SMS", layout="wide")
 
-# --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال (محدثة بالكامل لضمان عدم حدوث خطأ الحفظ) ---
+# --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال ---
 DB_NAME = "accounts_db.db"
 
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        # إنشاء الجدول بالهيكل الجديد المتكامل
         c.execute('''
             CREATE TABLE IF NOT EXISTS persons (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +23,6 @@ def init_db():
                 analytical_account TEXT
             )
         ''')
-        # التأكد من وجود كافة الأعمدة المطلوبة وتجنب أي خطأ في الجداول القديمة
         for col, col_type in [("sms_name", "TEXT"), ("account_name", "TEXT"), ("account_number", "TEXT"), ("analytical_account", "TEXT")]:
             try:
                 c.execute(f"ALTER TABLE persons ADD COLUMN {col} {col_type}")
@@ -32,7 +30,7 @@ def init_db():
                 pass
         conn.commit()
 
-# دالة لتنظيف وتوحيد الهمزات للمقارنة الدقيقة
+# دالة تنظيف وتوحيد الهمزات للمقارنة الدقيقة
 def normalize_arabic(text):
     if not text:
         return ""
@@ -52,10 +50,10 @@ def add_person(sms_name, acc_name, account_no, analytical_acc=""):
             )
             conn.commit()
             return True
-    except Exception as e:
+    except Exception:
         return False
 
-# --- قاعدة الربط الذكي للحسابات التحليلية والرئيسية ---
+# البحث الذكي عن العميل في قاعدة البيانات مع تجاهل الهمزات
 def get_smart_account_info(sms_name):
     if not sms_name:
         return {"account_name": "عميل غير محدد", "account": "1221000", "analytical": ""}
@@ -78,6 +76,7 @@ def get_smart_account_info(sms_name):
                     "analytical": str(row[3]) if row[3] else ""
                 }
     
+    # القيم الافتراضية إذا لم يوجد العميل مسجلاً
     return {
         "account_name": sms_name,
         "account": "1221000",  
@@ -124,7 +123,7 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📁 استيراد دليل العملاء (Excel)")
-st.sidebar.caption("الأعمدة المطلوبة:\n1. اسم العميل (بالرسالة)\n2. اسم الحساب\n3. رقم الحساب\n4. الحساب التحليلي")
+st.sidebar.caption("الأعمدة المطلوبة في الإكسل بالترتيب:\n1. اسم العميل (بالرسالة)\n2. اسم الحساب\n3. رقم الحساب\n4. الحساب التحليلي")
 excel_persons_file = st.sidebar.file_uploader("رفع ملف إكسل للعملاء:", type=["xlsx", "xls"])
 if excel_persons_file is not None:
     try:
@@ -143,7 +142,7 @@ if excel_persons_file is not None:
             st.sidebar.success(f"تم استيراد وتحديث {count} عميل بنجاح!")
             st.rerun()
         else:
-            st.sidebar.error("تأكد من مطابقة أسماء الأعمدة الأربعة في الإكسل.")
+            st.sidebar.error("تأكد من مطابقة أسماء الأعمدة الأربعة تماماً في الإكسل.")
     except Exception as e:
         st.sidebar.error(f"خطأ في قراءة ملف الإكسل: {e}")
 
@@ -153,7 +152,7 @@ with st.sidebar.form("add_person_form"):
     new_sms_name = st.text_input("اسم العميل (كما يظهر بالرسالة)")
     new_acc_name = st.text_input("اسم الحساب الفعلي")
     new_account = st.text_input("رقم الحساب الرئيسي (مثل: 1221000 أو 1221001)")
-    new_analytical = st.text_input("الحساب التحليلي (يبدأ بـ 1 أو 5، 6 أرقام)")
+    new_analytical = st.text_input("الحساب التحليلي (مثل: 120001 أو 511444)")
     submit_btn = st.form_submit_button("حفظ الحساب")
     
     if submit_btn:
@@ -191,6 +190,7 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
         amount = float(amount_match.group(1).replace(',', ''))
         currency_raw = amount_match.group(2).replace(" ", "").strip()
         
+        # تمييز العملات بدقة
         if "ري" in currency_raw:
             currency_code = "1"
             currency_label = "ريال يمني"
@@ -212,6 +212,7 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
                            re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text) or \
                            re.search(r'من:\s*(.*?)\s+(\d{5,})', raw_text)
         
+        # الصيغة الأصلية الدقيقة للقيود
         if "خصم" in raw_text or "صرف" in raw_text or "تحويل" in raw_text:
             if person_ref_match:
                 sms_person_name = person_ref_match.group(1).strip()
@@ -399,7 +400,7 @@ if st.session_state.all_entries:
             "رقم الحساب": row['رقم الحساب'],
             "الحساب التحليلي": row['الحساب التحليلي'],
             "البيان": row['البيان'],
-            "مدين محلي": row['الدين'] if 'الدين' in row else (row['المدين'] if is_local else 0.0),
+            "مدين محلي": row['المدين'] if is_local else 0.0,
             "مدين أجنبي": 0.0 if is_local else row['المدين'],
             "دائن محلي": row['الدائن'] if is_local else 0.0,
             "دائن أجنبي": 0.0 if is_local else row['الدائن'],
