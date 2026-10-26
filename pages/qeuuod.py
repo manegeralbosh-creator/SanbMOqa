@@ -17,20 +17,18 @@ def init_db():
         c.execute('''
             CREATE TABLE IF NOT EXISTS persons (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                sms_name TEXT UNIQUE,
-                account_name TEXT,
+                person_name TEXT UNIQUE,
                 account_number TEXT,
                 analytical_account TEXT
             )
         ''')
-        for col, col_type in [("sms_name", "TEXT"), ("account_name", "TEXT"), ("account_number", "TEXT"), ("analytical_account", "TEXT")]:
-            try:
-                c.execute(f"ALTER TABLE persons ADD COLUMN {col} {col_type}")
-            except sqlite3.OperationalError:
-                pass
+        try:
+            c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
-# دالة تنظيف وتوحيد الهمزات للمقارنة الدقيقة
+# دالة لتنظيف وتوحيد الهمزات للمقارنة الدقيقة
 def normalize_arabic(text):
     if not text:
         return ""
@@ -39,59 +37,55 @@ def normalize_arabic(text):
     text = re.sub(r'\s+', ' ', text)
     return text
 
-def add_person(sms_name, acc_name, account_no, analytical_acc=""):
+def add_person(name, account_no, analytical_acc=""):
     try:
         with sqlite3.connect(DB_NAME) as conn:
             c = conn.cursor()
-            cleaned_sms_name = sms_name.strip()
+            cleaned_name = name.strip()
             c.execute(
-                "INSERT OR REPLACE INTO persons (sms_name, account_name, account_number, analytical_account) VALUES (?, ?, ?, ?)",
-                (cleaned_sms_name, acc_name.strip(), account_no.strip(), analytical_acc.strip())
+                "INSERT OR REPLACE INTO persons (person_name, account_number, analytical_account) VALUES (?, ?, ?)",
+                (cleaned_name, account_no.strip(), analytical_acc.strip())
             )
             conn.commit()
             return True
     except Exception:
         return False
 
-# البحث الذكي عن العميل في قاعدة البيانات مع تجاهل الهمزات
-def get_smart_account_info(sms_name):
-    if not sms_name:
-        return {"account_name": "عميل غير محدد", "account": "1221000", "analytical": ""}
+# بحث ذكي يتجاهل الهمزات ويدعم المطابقة الجزئية
+def get_person_info(name):
+    if not name:
+        return None
     
-    target_normalized = normalize_arabic(sms_name)
+    target_normalized = normalize_arabic(name)
     
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
-        c.execute("SELECT sms_name, account_name, account_number, analytical_account FROM persons")
+        c.execute("SELECT person_name, account_number, analytical_account FROM persons")
         rows = c.fetchall()
         
         for row in rows:
-            db_sms_name = row[0]
-            db_normalized = normalize_arabic(db_sms_name)
+            db_name = row[0]
+            db_normalized = normalize_arabic(db_name)
             
             if db_normalized == target_normalized or db_normalized in target_normalized or target_normalized in db_normalized:
                 return {
-                    "account_name": str(row[1]) if row[1] else db_sms_name,
-                    "account": str(row[2]), 
-                    "analytical": str(row[3]) if row[3] else ""
+                    "account": str(row[1]), 
+                    "analytical": str(row[2]) if row[2] else ""
                 }
-    
-    # القيم الافتراضية إذا لم يوجد العميل مسجلاً
-    return {
-        "account_name": sms_name,
-        "account": "1221000",  
-        "analytical": ""       
-    }
+    return None
 
 def get_all_persons():
     with sqlite3.connect(DB_NAME) as conn:
         try:
             df = pd.read_sql_query(
-                "SELECT sms_name AS 'اسم العميل (بالرسالة)', account_name AS 'اسم الحساب', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
+                "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب', analytical_account AS 'الحساب التحليلي' FROM persons",
                 conn
             )
         except Exception:
-            df = pd.DataFrame()
+            df = pd.read_sql_query(
+                "SELECT person_name AS 'اسم الشخص', account_number AS 'رقم الحساب' FROM persons",
+                conn
+            )
     return df
 
 init_db()
@@ -123,47 +117,43 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📁 استيراد دليل العملاء (Excel)")
-st.sidebar.caption("الأعمدة المطلوبة في الإكسل بالترتيب:\n1. اسم العميل (بالرسالة)\n2. اسم الحساب\n3. رقم الحساب\n4. الحساب التحليلي")
-excel_persons_file = st.sidebar.file_uploader("رفع ملف إكسل للعملاء:", type=["xlsx", "xls"])
+excel_persons_file = st.sidebar.file_uploader("رفع ملف إكسل للعملاء (اسم الشخص, رقم الحساب, الحساب التحليلي):", type=["xlsx", "xls"])
 if excel_persons_file is not None:
     try:
         df_import = pd.read_excel(excel_persons_file)
-        expected_cols = ['اسم العميل (بالرسالة)', 'اسم الحساب', 'رقم الحساب', 'الحساب التحليلي']
-        if all(col in df_import.columns for col in expected_cols):
+        if all(col in df_import.columns for col in ['اسم الشخص', 'رقم الحساب', 'الحساب التحليلي']):
             count = 0
             for _, row in df_import.iterrows():
-                s_name = str(row['اسم العميل (بالرسالة)']).strip()
-                a_name = str(row['اسم الحساب']).strip()
+                p_name = str(row['اسم الشخص']).strip()
                 p_acc = str(row['رقم الحساب']).strip()
                 p_ana = str(row['الحساب التحليلي']).strip() if pd.notna(row['الحساب التحليلي']) else ""
-                if s_name and p_acc:
-                    add_person(s_name, a_name, p_acc, p_ana)
+                if p_name and p_acc:
+                    add_person(p_name, p_acc, p_ana)
                     count += 1
             st.sidebar.success(f"تم استيراد وتحديث {count} عميل بنجاح!")
             st.rerun()
         else:
-            st.sidebar.error("تأكد من مطابقة أسماء الأعمدة الأربعة تماماً في الإكسل.")
+            st.sidebar.error("يجب أن يحتوي ملف الإكسل على الأعمدة التالية بالضبط: اسم الشخص, رقم الحساب, الحساب التحليلي")
     except Exception as e:
         st.sidebar.error(f"خطأ في قراءة ملف الإكسل: {e}")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("إضافة عميل يدويًا")
 with st.sidebar.form("add_person_form"):
-    new_sms_name = st.text_input("اسم العميل (كما يظهر بالرسالة)")
-    new_acc_name = st.text_input("اسم الحساب الفعلي")
-    new_account = st.text_input("رقم الحساب الرئيسي (مثل: 1221000 أو 1221001)")
-    new_analytical = st.text_input("الحساب التحليلي (مثل: 120001 أو 511444)")
+    new_name = st.text_input("اسم الشخص (كما يظهر بالرسالة)")
+    new_account = st.text_input("رقم الحساب الرئيسي (مثال: 1211013)")
+    new_analytical = st.text_input("الحساب التحليلي (مثال: 701)")
     submit_btn = st.form_submit_button("حفظ الحساب")
     
     if submit_btn:
-        if new_sms_name and new_account:
-            if add_person(new_sms_name, new_acc_name, new_account, new_analytical):
-                st.success(f"تم حفظ العميل {new_sms_name} بنجاح!")
+        if new_name and new_account:
+            if add_person(new_name, new_account, new_analytical):
+                st.success(f"تم حفظ {new_name} بنجاح!")
                 st.rerun()
             else:
                 st.warning("حدث خطأ أثناء الحفظ.")
         else:
-            st.error("يرجى ملء اسم العميل ورقم الحساب الرئيسي.")
+            st.error("يرجى ملء اسم الشخص ورقم الحساب الرئيسي.")
 
 st.sidebar.dataframe(get_all_persons(), use_container_width=True)
 
@@ -183,6 +173,7 @@ def split_bulk_messages(text):
 def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
     entry_rows = []
     
+    # التقاط المبلغ وما يليه من حروف العملة بدقة
     amount_match = re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)\s*([\d\.,]+)\s*([أ-يa-zA-Z\$]+)', raw_text) or \
                    re.search(r'(?:خصم|إيداع|ايداع|صرف|تحويل)([\d\.,]+)\s*([أ-يa-zA-Z\$]+)', raw_text)
     
@@ -190,15 +181,15 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
         amount = float(amount_match.group(1).replace(',', ''))
         currency_raw = amount_match.group(2).replace(" ", "").strip()
         
-        # تمييز العملات بدقة
+        # تمييز العملات بدقة بناءً على ملاحظتك
         if "ري" in currency_raw:
-            currency_code = "1"
+            currency_code = "1"  # ريال يمني
             currency_label = "ريال يمني"
         elif "رس" in currency_raw or "ر س" in raw_text or "سعودي" in currency_raw:
-            currency_code = "2"
+            currency_code = "2"  # ريال سعودي
             currency_label = "ريال سعودي"
         elif "دز" in currency_raw or "د.ز" in raw_text or "دولار" in currency_raw or "$" in currency_raw:
-            currency_code = "3"
+            currency_code = "3"  # دولار (د ز)
             currency_label = "دولار أزرق (د.ز)"
         else:
             currency_code = "1"
@@ -212,21 +203,19 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
                            re.search(r'حوالة من:\s*(.*?)/(\d+)', raw_text) or \
                            re.search(r'من:\s*(.*?)\s+(\d{5,})', raw_text)
         
-        # الصيغة الأصلية الدقيقة للقيود
         if "خصم" in raw_text or "صرف" in raw_text or "تحويل" in raw_text:
             if person_ref_match:
-                sms_person_name = person_ref_match.group(1).strip()
+                person_name = person_ref_match.group(1).strip()
                 reference_no = person_ref_match.group(2).strip()
             else:
-                sms_person_name = "عميل غير محدد"
+                person_name = "عميل غير محدد"
                 reference_no = "0000"
 
-            p_info = get_smart_account_info(sms_person_name)
-            account_display_name = p_info["account_name"]
-            debit_account = p_info["account"]
-            analytical_acc = p_info["analytical"]
-
-            header_description = f"خصم تحويل للمستلم {account_display_name} مرجع {reference_no} ({currency_label})"
+            header_description = f"خصم تحويل للمستلم {person_name} مرجع {reference_no} ({currency_label})"
+            
+            p_info = get_person_info(person_name)
+            debit_account = p_info["account"] if p_info else "1211013"
+            analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
             entry_rows.append({
                 "رقم الحساب": debit_account,
@@ -242,7 +231,7 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
                 entry_rows.append({
                     "رقم الحساب": "321003",
                     "الحساب التحليلي": "",
-                    "البيان": f"عمولة تحويل {account_display_name} مرجع {reference_no}",
+                    "البيان": f"عمولة تحويل {person_name} مرجع {reference_no}",
                     "المدين": fee,
                     "الدائن": 0.0,
                     "العملة": currency_code,
@@ -262,18 +251,17 @@ def parse_single_message(raw_text, main_cash_acc, main_cash_ana):
 
         elif "إيداع" in raw_text or "ايداع" in raw_text:
             if person_ref_match:
-                sms_person_name = person_ref_match.group(1).strip()
+                person_name = person_ref_match.group(1).strip()
                 reference_no = person_ref_match.group(2).strip()
             else:
-                sms_person_name = "عميل غير محدد"
+                person_name = "عميل غير محدد"
                 reference_no = "0000"
             
-            p_info = get_smart_account_info(sms_person_name)
-            account_display_name = p_info["account_name"]
-            credit_account = p_info["account"]
-            analytical_acc = p_info["analytical"]
-
-            header_description = f"إيداع حوالة من {account_display_name} مرجع {reference_no} ({currency_label})"
+            header_description = f"إيداع حوالة من {person_name} مرجع {reference_no} ({currency_label})"
+            
+            p_info = get_person_info(person_name)
+            credit_account = p_info["account"] if p_info else "1211013"
+            analytical_acc = p_info["analytical"] if (p_info and p_info["analytical"]) else "701"
             
             entry_rows.append({
                 "رقم الحساب": main_cash_acc,
@@ -396,6 +384,7 @@ if st.session_state.all_entries:
     onyx_rows = []
     for idx, row in df_all.iterrows():
         is_local = (row['العملة'] == "1")
+        # في أونكس، إذا كانت العملة غير محلية (سعودي أو دولار)، توضع في الحقول الأجنبية حسب الكود
         onyx_rows.append({
             "رقم الحساب": row['رقم الحساب'],
             "الحساب التحليلي": row['الحساب التحليلي'],
