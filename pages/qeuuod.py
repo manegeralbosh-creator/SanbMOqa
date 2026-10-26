@@ -8,12 +8,13 @@ import xml.etree.ElementTree as ET
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="نظام قيود أونكس برو - SMS", layout="wide")
 
-# --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال ---
+# --- 1. تهيئة وترقية قاعدة البيانات آمنة الاتصال (محدثة بالكامل لضمان عدم حدوث خطأ الحفظ) ---
 DB_NAME = "accounts_db.db"
 
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         c = conn.cursor()
+        # إنشاء الجدول بالهيكل الجديد المتكامل
         c.execute('''
             CREATE TABLE IF NOT EXISTS persons (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,14 +24,12 @@ def init_db():
                 analytical_account TEXT
             )
         ''')
-        try:
-            c.execute("ALTER TABLE persons ADD COLUMN account_name TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            c.execute("ALTER TABLE persons ADD COLUMN analytical_account TEXT")
-        except sqlite3.OperationalError:
-            pass
+        # التأكد من وجود كافة الأعمدة المطلوبة وتجنب أي خطأ في الجداول القديمة
+        for col, col_type in [("sms_name", "TEXT"), ("account_name", "TEXT"), ("account_number", "TEXT"), ("analytical_account", "TEXT")]:
+            try:
+                c.execute(f"ALTER TABLE persons ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 # دالة لتنظيف وتوحيد الهمزات للمقارنة الدقيقة
@@ -53,10 +52,10 @@ def add_person(sms_name, acc_name, account_no, analytical_acc=""):
             )
             conn.commit()
             return True
-    except Exception:
+    except Exception as e:
         return False
 
-# --- قاعدة الربط الذكي للحسابات التحليلية والرئيسية بناءً على طلبك ---
+# --- قاعدة الربط الذكي للحسابات التحليلية والرئيسية ---
 def get_smart_account_info(sms_name):
     if not sms_name:
         return {"account_name": "عميل غير محدد", "account": "1221000", "analytical": ""}
@@ -79,12 +78,10 @@ def get_smart_account_info(sms_name):
                     "analytical": str(row[3]) if row[3] else ""
                 }
     
-    # إذا لم يكن العميل موجوداً في قاعدة البيانات، نطبّق القاعدة الذكية افتراضياً:
-    # (يمكنك تعديلها حسب رغبتك أو حفظه بالحساب الافتراضي)
     return {
         "account_name": sms_name,
-        "account": "1221000",  # الحساب الرئيسي الافتراضي
-        "analytical": ""       # الحساب التحليلي
+        "account": "1221000",  
+        "analytical": ""       
     }
 
 def get_all_persons():
